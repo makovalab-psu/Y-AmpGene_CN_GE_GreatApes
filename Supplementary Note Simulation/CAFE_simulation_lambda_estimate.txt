@@ -1,0 +1,110 @@
+cd /nfs/brubeck.bx.psu.edu/scratch5/rahul/Apes/analysis/simulationCAFE/custom_simulate/
+
+R
+GFcount<-read.table("MHan_Primate_cafefmt.tab",sep="\t", stringsAsFactors=F, header=T)
+GFcount_parse=GFcount[which(apply(GFcount[,c(3,4,5)],1,sum)<200),]
+GFcount_parse1=GFcount_parse[which(apply(GFcount_parse[,c(3,4,5)],1,var)>0),]
+GFcount_parse2=GFcount_parse[which(apply(GFcount_parse[,c(3,4,5)],1,var)>8),]
+
+write.table(GFcount_parse,file=paste("MHan_Primate_less100perGF.tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+write.table(GFcount_parse1,file=paste("MHan_Primate_vargt0.tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+write.table(GFcount_parse2,file=paste("Primate_simulation/MHan_Primate_100.tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+
+GFcount_GA<-read.table("../data_APE/test_APE.tab",sep="\t", stringsAsFactors=F, header=T)
+Variance<-apply(GFcount_GA[,c(3,4,5,6,7)],1,var)
+cbind(GFcount_GA,Variance)
+
+for (i in seq(20)){
+	print(i)
+	temp=GFcount_parse1[round(runif(30,1,2445)),]
+	temp=GFcount_parse2[round(runif(9,1,104)),]
+	write.table(temp,file=paste("Primate_simulation/MHan_Primate_rand9_",i,".tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+	write.table(temp,file=paste("Primate_simulation/MHan_Primate_rand30_",i,".tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+	write.table(temp[seq(10),],file=paste("Primate_simulation/MHan_Primate_rand30_sub10_",i,".tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+	write.table(temp[seq(15),],file=paste("Primate_simulation/MHan_Primate_rand30_sub15_",i,".tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+	write.table(temp[seq(5),],file=paste("Primate_simulation/MHan_Primate_rand30_sub5_",i,".tab",sep=""),sep="\t",col.names=T,quote=F,row.names=F)
+}
+
+cd Primate_simulation/
+python
+
+j=open("cafe_script_MHan_n9.sh","w")
+for i in range(1,21):
+	o=open("cafe_script_MHan_n9_"+str(i)+".sh","w")
+	j.write("cafe cafe_script_MHan_n9_"+str(i)+".sh\n")
+	o.write("#!shell\ndate\n")
+	o.write("load -i MHan_Primate_rand9_"+str(i)+".tab -p 0.01 -t 10 -l logMHan30_"+str(i)+".txt\n")
+	o.write("tree ((Chimp:6,Human:6):18,Macaque:24)\n")
+	o.write("lambda -s -t ((1,1)1,1)\n")
+	o.write("report example_report_mhP9_"+str(i)+"\n")
+	o.close()
+
+j.close()
+
+
+j=open("cafe_script_MHan_n30.sh","w")
+for i in range(1,11):
+	o=open("cafe_script_MHan_n30_"+str(i)+".sh","w")
+	j.write("cafe cafe_script_MHan_n30_"+str(i)+".sh\n")
+	o.write("#!shell\ndate\n")
+	o.write("load -i MHan_Primate_rand30_"+str(i)+".tab -p 0.01 -t 10 -l logMHan30_"+str(i)+".txt\n")
+	o.write("tree ((Chimp:6,Human:6):18,Macaque:24)\n")
+	o.write("lambda -s -t ((1,1)1,1)\n")
+	o.write("report example_report_mhP30_"+str(i)+"\n")
+	o.close()
+
+j.close()
+
+
+j=open("cafe_script_MHan_n5.sh","w")
+for i in range(1,11):
+	o=open("cafe_script_MHan_n5_"+str(i)+".sh","w")
+	j.write("cafe cafe_script_MHan_n5_"+str(i)+".sh\n")
+	o.write("#!shell\ndate\n")
+	o.write("load -i MHan_Primate_rand30_sub5_"+str(i)+".tab -p 0.01 -t 10 -l logMHan5_"+str(i)+".txt\n")
+	o.write("tree ((Chimp:6,Human:6):18,Macaque:24)\n")
+	o.write("lambda -s -t ((1,1)1,1)\n")
+	o.write("report example_report_mhP5_"+str(i)+"\n")
+	o.close()
+
+j.close()
+
+j=open("cafe_script_MHan_n15.sh","w")
+for i in range(1,11):
+	o=open("cafe_script_MHan_n15_"+str(i)+".sh","w")
+	j.write("cafe cafe_script_MHan_n15_"+str(i)+".sh\n")
+	o.write("#!shell\ndate\n")
+	o.write("load -i MHan_Primate_rand30_sub15_"+str(i)+".tab -p 0.01 -t 10 -l logMHan15_"+str(i)+".txt\n")
+	o.write("tree ((Chimp:6,Human:6):18,Macaque:24)\n")
+	o.write("lambda -s -t ((1,1)1,1)\n")
+	o.write("report example_report_mhP15_"+str(i)+"\n")
+	o.close()
+
+j.close()
+
+j=open("cafe_script_MHan_n10.sh","w")
+for i in range(1,11):
+	o=open("cafe_script_MHan_n10_"+str(i)+".sh","w")
+	j.write("cafe cafe_script_MHan_n10_"+str(i)+".sh\n")
+	o.write("#!shell\ndate\n")
+	o.write("load -i MHan_Primate_rand30_sub10_"+str(i)+".tab -p 0.01 -t 10 -l logMHan10_"+str(i)+".txt\n")
+	o.write("tree ((Chimp:6,Human:6):18,Macaque:24)\n")
+	o.write("lambda -s -t ((1,1)1,1)\n")
+	o.write("report example_report_mhP10_"+str(i)+"\n")
+	o.close()
+
+j.close()
+
+
+cmd line
+nohup sh cafe_script_MHan_n9.sh > log_n9 &
+nohup sh cafe_script_MHan_n5.sh > log_n5 &
+nohup sh cafe_script_MHan_n10.sh > log_n10 &
+nohup sh cafe_script_MHan_n15.sh > log_n15 &
+nohup sh cafe_script_MHan_n30.sh > log_n30 &
+#Parse the lambda values
+grep -B1 "DONE: Lambda Search or setting" log_n9 | grep "^Lamb" | awk '{print $3}'
+grep -B1 "DONE: Lambda Search or setting" log_n5 | grep "^Lamb" | awk '{print $3}'
+grep -B1 "DONE: Lambda Search or setting" log_n10 | grep "^Lamb" | awk '{print $3}'
+grep -B1 "DONE: Lambda Search or setting" log_n15 | grep "^Lamb" | awk '{print $3}'
+grep -B1 "DONE: Lambda Search or setting" log_n30 | grep "^Lamb" | awk '{print $3}'

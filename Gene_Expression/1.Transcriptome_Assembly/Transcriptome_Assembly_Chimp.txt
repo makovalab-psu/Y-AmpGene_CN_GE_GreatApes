@@ -1,0 +1,1194 @@
+wget ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR204/SRR2040590/SRR2040590.sra
+wget ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR204/SRR2040591/SRR2040591.sra
+fastq-dump -I --split-files SRR2040590.sra
+fastq-dump -I --split-files SRR2040591.sra
+
+
+
+#Quality check
+fastqc SRR2040590_R1.fastq SRR2040590_R2.fastq
+
+#Quality and Read length check / FastQValidator
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/check_sanity.sh 91-3405a_S1_L001_R1.fastq 91-3405a_S1_L001_R1.fastq
+
+#Adapter check
+##Copy adapter list from Trueseq
+cp /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trueseq_Adapter_MEDIUM_contaminant_list.txt .
+
+##Search for presence of adapter
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh 3405a_S1_L001_R1.fastq
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh 3405a_S1_L001_R2.fastq
+
+##Look for adapter and list the ones present
+vim adapter_list.txt
+
+wget http://hgdownload.soe.ucsc.edu/goldenPath/panTro5/bigZips/panTro5.fa.gz
+gunzip panTro5.fa.gz
+grep ">chrY" -n panTro5.fa
+
+head -n64118165 panTro5.fa > panTro5_female.fa
+
+nohup bowtie2-build -f panTro5_female.fa panTro5_female &
+
+
+####Ruiz-Orera J et al., "Origins of De Novo Genes in Human and Chimpanzee.", PLoS Genet, 2015 Dec 31;11(12):e1005721
+nohup fastq-dump -I --split-files SRR2040590.sra &
+nohup fastq-dump -I --split-files SRR2040591.sra &
+
+fastqc SRR2040590_1.fastq SRR2040590_2.fastq
+mv SRR2040590_1.fastq SRR2040590_R1.fastq
+mv SRR2040590_2.fastq SRR2040590_R2.fastq
+#Quality and Read length check / FastQValidator
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/check_sanity.sh SRR2040590_R1.fastq SRR2040590_R2.fastq
+
+#Adapter check
+##Copy adapter list from Trueseq
+cp /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trueseq_Adapter_MEDIUM_contaminant_list.txt .
+
+##Search for presence of adapter
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR2040590_R1.fastq
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR2040590_R2.fastq
+
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trimming_PE.sh SRR2040590_R1.fastq adapter_list.txt
+
+STEP3: Remove Female specific reads
+Testis RNASeq reads were mapped to the gorilla female reference genome with Tophat2
+
+###Tophat
+
+vim Tophat_FemaleRef_unmapped.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female
+###Folder link should end with "/"
+SAMPLE_FOLDER=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/
+R1=SRR2040590_R1.fastq_trimmed.fastq
+R2=SRR2040590_R2.fastq_trimmed.fastq
+TOPHAT_FOLDER=Tophat_Chimpanzee
+
+
+/galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2 --no-discordant --no-mixed --library-type fr-firststrand --read-realign-edit-dist 0 -o $TOPHAT_FOLDER --num-threads 45 --mate-inner-dist 0 --mate-std-dev 200 --microexon-search --no-convert-bam $FEMALE_REF ${SAMPLE_FOLDER}${R1} ${SAMPLE_FOLDER}${R2}
+
+samtools view -hb -f 69 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/first.bam
+samtools view -hb -f 133 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/second.bam
+
+samtools bam2fq ${TOPHAT_FOLDER}/first.bam > ${TOPHAT_FOLDER}/first.fastq
+samtools bam2fq ${TOPHAT_FOLDER}/second.bam > ${TOPHAT_FOLDER}/second.fastq
+
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/first.fastq | sort -S 8G -T. > read1.txt
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/second.fastq | sort -S 8G -T. > read2.txt
+
+awk '{x=substr($1,1,length($1)-1); printf "%s\t%s\t%s\n", x,$2,$3}' read1.txt > read1_fix.txt
+awk '{x=substr($1,1,length($1)-1); printf "%s\t%s\t%s\n", x,$2,$3}' read2.txt > read2_fix.txt
+join read1_fix.txt read2_fix.txt | awk '{print $1"\n"$2"\n+\n"$3 > "unmapped_R1.fq";print $1"\n"$4"\n+\n"$5 > "unmapped_R2.fq"}'
+
+#cat unmapped_R1.fq | sed -e 's/^@HW.*/&\/1/g' > unmapped_R1_fix.fastq
+#cat unmapped_R2.fq | sed -e 's/^@HW.*/&\/2/g' > unmapped_R2_fix.fastq
+
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R2.fq 2
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R1.fq 1
+
+samtools view -h -Sb ${TOPHAT_FOLDER}/accepted_hits.sam > ${TOPHAT_FOLDER}/accepted_hits.bam
+java -jar /galaxy/home/rxv923/src/picard-master/dist/picard.jar CollectInsertSizeMetrics I=${TOPHAT_FOLDER}/accepted_hits.bam O=${TOPHAT_FOLDER}/insert_size_metrics.txt H=${TOPHAT_FOLDER}/insert_size_histogram.pdf
+
+
+vim slurm_Tophat.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Tophat_Female.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/
+#SBATCH -J Tophat
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=64
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=96:00:00
+
+srun sh Tophat_FemaleRef_unmapped.sh
+
+
+
+
+vim Trinity_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+LEFT=unmapped_R1.fqFixed.fastq
+RIGHT=unmapped_R2.fqFixed.fastq
+REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female.fa
+TRINITY_DIR=Trinity_output
+
+/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 50G --left $LEFT --right $RIGHT --CPU 25 --SS_lib_type RF --output $TRINITY_DIR
+blat $REF ${TRINITY_DIR}/Trinity.fasta -minIdentity=100 -noHead ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl
+cat ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > ${TRINITY_DIR}/ContigsList_90perAlign_FemaleRef.txt
+
+
+vim parse_TrinityContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+InputT="Trinity_output/ContigsList_90perAlign_FemaleRef.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filteredT:
+			continue
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_output/Trinity.fasta"
+OutputT=open("Trinity_output/Trinity_NotmappedFemaleRef.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		continue
+	else:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+vim slurm_trinty.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=25
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh Trinity_ContigsList90percentMaptoFemale.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_TrinityContigsNotAligndFemlaeRef.py
+
+##SOAPdeNovoTrans
+
+
+
+vim config.txt # set insert size and other parameters
+
+#maximal read length
+max_rd_len=100
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=100
+#average insert size
+avg_ins= 200
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq file for read 1
+q1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/unmapped_R1.fqFixed.fastq
+#fastq file for read 2 always follows fastq file for read 1
+q2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/unmapped_R2.fqFixed.fastq
+
+vim SoapDT_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female.fa
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 25
+srun blat $FEMALE_REF SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdenovoGraph25_blat_FemaleRef.psl
+srun cat SOAPdenovoGraph25_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt
+
+#############################################################
+
+vim parse_SOAPContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+Input="SdT25/SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt"
+Fasta="SdT25/SOAPdenovoGraph25.scafSeq"
+Output=open("SdT25/SOAPdT_NotmappedFemaleRef.fa", "w")
+
+
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filtered:
+			continue
+		else:
+			filtered[col[0]]=0
+
+
+
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		continue
+	else:
+		#print (seq_record.id)
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+vim slurm_SoapDT.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/SoapDT25.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/
+#SBATCH -J ChiSOAPdT25
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=25
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh SoapDT_ContigsList90percentMaptoFemale.sh
+
+
+mkdir SdT25/
+mv SOAPdenovoGraph25* SdT25
+
+/galaxy/home/rxv923/myEnv/bin/python parse_SOAPContigsNotAligndFemlaeRef.py
+
+STEP6: Female Clean
+we removed contigs that were covered at over 90% of their length by mapped female chimpanzee liver RNAseq reads
+    Nature
+    478,
+    343–348
+    (20 October 2011)
+    doi:10.1038/nature10532
+	ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306823/SRR306823.sra
+
+	
+cd /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/
+wget ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306823/SRR306823.sra
+fastq-dump -I --split-files SRR306823.sra
+
+
+############ bowtie parameters 	-a return all valid alignments
+############					-q input is FASTQ format
+############					-p number of threads
+############					-S output is SAM format
+
+cd SdT25 
+vim SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306823
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_NotmappedFemaleRef.fa SOAPdT_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_NotmappedFemaleRef $FEM_READ1  > ${FEM_SAMPLE}_SdT.sam
+samtools view -Sbh ${FEM_SAMPLE}_SdT.sam >${FEM_SAMPLE}_SdT.bam
+samtools sort ${FEM_SAMPLE}_SdT.bam >${FEM_SAMPLE}_sorted_SdT.bam
+samtools index ${FEM_SAMPLE}_sorted_SdT.bam
+samtools faidx SOAPdT_NotmappedFemaleRef.fa
+cat SOAPdT_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SdT.bam -a SOAPdT_scaffold_length.bed > Coverage_FemaleReads_SOAPdTScaffolds.bed
+cat Coverage_FemaleReads_SOAPdTScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_SOAPdT.txt
+
+
+vim parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SOAPdT.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_NotmappedFemaleRef.fa"
+Output=open("SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/SdT25/SOAPdT_bowtieFemale.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/SdT25
+#SBATCH -J Chibowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+###############################################
+cd Trinity_output/	
+vim Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306823
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f Trinity_NotmappedFemaleRef.fa Trinity_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S Trinity_NotmappedFemaleRef $FEM_READ1  > ${FEM_SAMPLE}_Trin.sam
+samtools view -Sbh ${FEM_SAMPLE}_Trin.sam >${FEM_SAMPLE}_Trin.bam
+samtools sort ${FEM_SAMPLE}_Trin.bam >${FEM_SAMPLE}_sorted_Trin.bam
+samtools index ${FEM_SAMPLE}_sorted_Trin.bam
+samtools faidx Trinity_NotmappedFemaleRef.fa
+cat Trinity_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>Trinity_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_Trin.bam -a Trinity_scaffold_length.bed > Coverage_Female_TrinityScaffolds.bed
+cat Coverage_Female_TrinityScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_Trinity.txt
+
+
+
+vim parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+InputT="ContigsList_noFemaleCoverage_Trinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_NotmappedFemaleRef.fa"
+OutputT=open("Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Trinity_output/Trinity_bowtieFemale.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Trinity_output/
+#SBATCH -J Trbowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+
+####################################AMOS
+
+mkdir Join
+cp Trinity_output/Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+cp SdT25/SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+
+cd Join
+cat Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa > All_Malespecific_scaffolds.fa
+
+/galaxy/home/rxv923/src/cdhit/cd-hit-est -i All_Malespecific_scaffolds.fa -o all-Chimpanzee.cdhit.out -c 0.99
+
+vim library.txt
+
+lib1    bowtie  SRR2040590_R1.fastq SRR2040590_R2.fastq 200	0.65    FR
+
+source activate main
+perl /galaxy/home/rxv923/src/SSPACE-STANDARD-3.0_linux-x86_64/SSPACE_Standard_v3.0.pl -l library.txt -s all-Chimpanzee.cdhit.out
+
+
+#####################################################################
+
+cd standard_output
+STEP9A:
+
+vim ContigsList20percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306798
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f standard_output.final.scaffolds.fasta standard_output.final.scaffolds
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S standard_output.final.scaffolds $FEM_READ1  > ${FEM_SAMPLE}_SSPades.sam
+samtools view -Sbh ${FEM_SAMPLE}_SSPades.sam >${FEM_SAMPLE}_SSPades.bam
+samtools sort ${FEM_SAMPLE}_SSPades.bam >${FEM_SAMPLE}_sorted_SSPades.bam
+samtools index ${FEM_SAMPLE}_sorted_SSPades.bam
+samtools faidx standard_output.final.scaffolds.fasta
+cat standard_output.final.scaffolds.fasta.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SSPades.bam -a SSPADE_scaffold_length.bed > Coverage_Female_SSPADESScaffolds.bed
+cat Coverage_Female_SSPADESScaffolds.bed | awk '$7 < 0.2 { print $1 }'  > ContigsList_noFemaleCoverage_SSPADE.txt
+
+vim parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="standard_output.final.scaffolds.fasta"
+Output=open("SSPADE_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+
+
+
+
+
+
+vim slurm_BowtieFemaleReads.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output
+#SBATCH -J Febowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh ContigsList20percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+##########################
+
+vim ContigsList80percentCoveragetoMaleReads.sh
+#!usr/bin/sh
+# bail out on errors
+set ue
+MAL_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/SRR2040590_R1.fastq
+MAL_READ2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/SRR2040590_R2.fastq
+MAL_SAMPLE=SRR2040590
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SSPADE_NoCoverageFemaleReads.fa SSPADE_NoCoverageFemaleReads
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SSPADE_NoCoverageFemaleReads -1 $MAL_READ1 -2 $MAL_READ2 > ${MAL_SAMPLE}_SSPades.sam
+srun samtools view -Sbh ${MAL_SAMPLE}_SSPades.sam >${MAL_SAMPLE}_SSPades.bam
+srun samtools sort ${MAL_SAMPLE}_SSPades.bam >${MAL_SAMPLE}_sorted_SSPades.bam
+srun samtools index ${MAL_SAMPLE}_sorted_SSPades.bam
+srun samtools faidx SSPADE_NoCoverageFemaleReads.fa
+srun cat SSPADE_NoCoverageFemaleReads.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_NoCoverageFemaleReads_scaffold_length.bed
+srun bedtools coverage -b ${MAL_SAMPLE}_sorted_SSPades.bam -a SSPADE_NoCoverageFemaleReads_scaffold_length.bed > Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed
+srun cat Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed | awk '$7 > 0.8 { print $1 }'  > ContigsList_noFemaleCoverage_SSPADE.txt.txt
+		
+
+
+
+
+vim parse_SSPadeContigsWithCoverageMaleReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SSPADE_NoCoverageFemaleReads.fa"
+Output=open("Male_Transcripts_Filtered.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+		
+
+ vim slurm_BowtieMaleReads.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/bowtie_Maleout.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/
+#SBATCH -J bowtieM
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+		
+srun sh ContigsList80percentCoveragetoMaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SSPadeContigsWithCoverageMaleReads.py
+
+######################################
+
+toAmos -s Male_Transcripts_Filtered.fa -o Male_Transcripts_Filtered.afg
+
+
+vim slurm_minimus2.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/minimus2_64out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/
+#SBATCH -J Minimus
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=64
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+#minimus2 Male_Transcripts_Filtered
+srun minimus2_64 Male_Transcripts_Filtered
+
+
+cat Male_Transcripts_Filtered.fasta Male_Transcripts_Filtered.singletons.seq > Male_Transcripts_Filtered_final.fa
+
+STEP10: Annotation
+
+/galaxy/home/rxv923/src/TransDecoder-3.0.1/TransDecoder.LongOrfs -t Male_Transcripts_Filtered_final.fa
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastp -query Male_Transcripts_Filtered_final.fa.transdecoder_dir/longest_orfs.pep  -db uniprot_sprot.pep  -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' -evalue 1e-5 -num_threads 10 > blastp.outfmt6
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastx -query Male_Transcripts_Filtered_final.fa -db uniprot_sprot.pep -num_threads 10 -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' > blastx.outfmt6
+
+blat Male_Transcripts_Filtered_final.fa /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone.pls
+
+
+
+
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output/amplilcon_readcount.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/Join/standard_output
+#SBATCH -J ReadCount
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=20
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+
+REF=Chimpanzee_Final.fa
+R1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/unmapped_R1_fix.fastq
+R2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040590/unmapped_R2_fix.fastq
+bwa aln -q 15 $REF $R1  > temp_R1.sai
+bwa aln -q 15 $REF $R2  > temp_R2.sai
+bwa sampe $REF temp_R1.sai temp_R2.sai $R1 $R2 > unmapped_Amplicon.sam
+
+samtools view -bhS unmapped_Amplicon.sam >unmapped_Amplicon.bam
+samtools sort unmapped_Amplicon.bam -o unmapped_Amplicon_Sorted.bam
+samtools index unmapped_Amplicon_Sorted.bam
+samtools faidx $REF
+cat ${REF}.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'> Amplicon_scaffold_length.bed
+bedtools coverage -b unmapped_Amplicon_Sorted.bam -a Amplicon_scaffold_length.bed > Coverage_Amplicon_FemaleUnmapped.bed
+
+##############################################################################
+##############################################################################
+fastqc SRR2040591_1.fastq SRR2040591_2.fastq
+mv SRR2040591_1.fastq SRR2040591_R1.fastq
+mv SRR2040591_2.fastq SRR2040591_R2.fastq
+#Quality and Read length check / FastQValidator
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/check_sanity.sh SRR2040591_R1.fastq SRR2040591_R2.fastq
+
+#Adapter check
+##Copy adapter list from Trueseq
+cp /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trueseq_Adapter_MEDIUM_contaminant_list.txt .
+
+##Search for presence of adapter
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR2040591_R1.fastq
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR2040591_R2.fastq
+
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trimming_PE.sh SRR2040591_R1.fastq adapter_list.txt
+
+
+###Tophat
+
+vim Tophat_FemaleRef_unmapped.sh
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female
+###Folder link should end with "/"
+SAMPLE_FOLDER=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/
+R1=SRR2040591_R1.fastq_trimmed.fastq
+R2=SRR2040591_R2.fastq_trimmed.fastq
+TOPHAT_FOLDER=Tophat_Chimpanzee
+
+
+/galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2 --no-discordant --no-mixed --library-type fr-firststrand --read-realign-edit-dist 0 -o $TOPHAT_FOLDER --num-threads 45 --mate-inner-dist 0 --mate-std-dev 200 --microexon-search --no-convert-bam $FEMALE_REF ${SAMPLE_FOLDER}${R1} ${SAMPLE_FOLDER}${R2}
+
+samtools view -hb -f 69 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/first.bam
+samtools view -hb -f 133 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/second.bam
+
+samtools bam2fq ${TOPHAT_FOLDER}/first.bam > ${TOPHAT_FOLDER}/first.fastq
+samtools bam2fq ${TOPHAT_FOLDER}/second.bam > ${TOPHAT_FOLDER}/second.fastq
+
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/first.fastq | sort -S 8G -T. > read1.txt
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/second.fastq | sort -S 8G -T. > read2.txt
+
+awk '{x=substr($1,1,length($1)-1); printf "%s\t%s\t%s\n", x,$2,$3}' read1.txt > read1_fix.txt
+awk '{x=substr($1,1,length($1)-1); printf "%s\t%s\t%s\n", x,$2,$3}' read2.txt > read2_fix.txt
+
+join read1_fix.txt read2_fix.txt | awk '{print $1"\n"$2"\n+\n"$3 > "unmapped_R1.fq";print $1"\n"$4"\n+\n"$5 > "unmapped_R2.fq"}'
+
+#cat unmapped_R1.fq | sed -e 's/^@HW.*/&\/1/g' > unmapped_R1_fix.fastq
+#cat unmapped_R2.fq | sed -e 's/^@HW.*/&\/2/g' > unmapped_R2_fix.fastq
+
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R2.fq 2
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R1.fq 1
+
+samtools view -h -Sb ${TOPHAT_FOLDER}/accepted_hits.sam > ${TOPHAT_FOLDER}/accepted_hits.bam
+java -jar /galaxy/home/rxv923/src/picard-master/dist/picard.jar CollectInsertSizeMetrics I=${TOPHAT_FOLDER}/accepted_hits.bam O=${TOPHAT_FOLDER}/insert_size_metrics.txt H=${TOPHAT_FOLDER}/insert_size_histogram.pdf
+
+
+vim slurm_Tophat.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Tophat_Female.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/
+#SBATCH -J Tophat91
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=64
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=96:00:00
+
+srun sh Tophat_FemaleRef_unmapped.sh
+###############################################
+STEP4: Run assembly
+the unmapped reads (enriched for male-specific transcripts) were assembled with Trinity and SOAPdenovo-Trans. The generated contigs were aligned to the female reference genome with BLAT, and contigs that aligned at >90% of their length with 100% identity were removed from subsequent steps.  
+
+##Trinity
+vim Trinity_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+LEFT=unmapped_R1.fqFixed.fastq
+RIGHT=unmapped_R2.fqFixed.fastq
+REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female.fa
+TRINITY_DIR=Trinity_output
+
+/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 50G --left $LEFT --right $RIGHT --CPU 25 --SS_lib_type RF --output $TRINITY_DIR
+blat $REF ${TRINITY_DIR}/Trinity.fasta -minIdentity=100 -noHead ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl
+cat ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > ${TRINITY_DIR}/ContigsList_90perAlign_FemaleRef.txt
+
+
+vim parse_TrinityContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+InputT="Trinity_output/ContigsList_90perAlign_FemaleRef.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filteredT:
+			continue
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_output/Trinity.fasta"
+OutputT=open("Trinity_output/Trinity_NotmappedFemaleRef.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		continue
+	else:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+vim slurm_trinty.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=25
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh Trinity_ContigsList90percentMaptoFemale.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_TrinityContigsNotAligndFemlaeRef.py
+
+##SOAPdeNovoTrans
+
+
+
+vim config.txt # set insert size and other parameters
+
+#maximal read length
+max_rd_len=100
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=100
+#average insert size
+avg_ins= 272
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq file for read 1
+q1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/unmapped_R1.fqFixed.fastq
+#fastq file for read 2 always follows fastq file for read 1
+q2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/unmapped_R2.fqFixed.fastq
+
+vim SoapDT_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Chimpanzee/panTro5_female.fa
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 25
+srun blat $FEMALE_REF SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdenovoGraph25_blat_FemaleRef.psl
+srun cat SOAPdenovoGraph25_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt
+
+#############################################################
+
+vim parse_SOAPContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+Input="SdT25/SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt"
+Fasta="SdT25/SOAPdenovoGraph25.scafSeq"
+Output=open("SdT25/SOAPdT_NotmappedFemaleRef.fa", "w")
+
+
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filtered:
+			continue
+		else:
+			filtered[col[0]]=0
+
+
+
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		continue
+	else:
+		#print (seq_record.id)
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+vim slurm_SoapDT.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/SoapDT25.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/
+#SBATCH -J ChiSOAPdT25
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=25
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh SoapDT_ContigsList90percentMaptoFemale.sh
+
+mkdir SdT25/
+mv SOAPdenovoGraph25* SdT25
+
+/galaxy/home/rxv923/myEnv/bin/python parse_SOAPContigsNotAligndFemlaeRef.py
+
+STEP6: Female Clean
+we removed contigs that were covered at over 90% of their length by mapped female chimpanzee liver RNAseq reads
+    Nature
+    478,
+    343–348
+    (20 October 2011)
+    doi:10.1038/nature10532
+	ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306823/SRR306823.sra
+
+	
+cd /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/
+wget ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306823/SRR306823.sra
+fastq-dump -I --split-files SRR306823.sra
+
+
+############ bowtie parameters 	-a return all valid alignments
+############					-q input is FASTQ format
+############					-p number of threads
+############					-S output is SAM format
+
+cd SdT25 
+vim SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306823
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_NotmappedFemaleRef.fa SOAPdT_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_NotmappedFemaleRef $FEM_READ1  > ${FEM_SAMPLE}_SdT.sam
+samtools view -Sbh ${FEM_SAMPLE}_SdT.sam >${FEM_SAMPLE}_SdT.bam
+samtools sort ${FEM_SAMPLE}_SdT.bam >${FEM_SAMPLE}_sorted_SdT.bam
+samtools index ${FEM_SAMPLE}_sorted_SdT.bam
+samtools faidx SOAPdT_NotmappedFemaleRef.fa
+cat SOAPdT_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SdT.bam -a SOAPdT_scaffold_length.bed > Coverage_FemaleReads_SOAPdTScaffolds.bed
+cat Coverage_FemaleReads_SOAPdTScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_SOAPdT.txt
+
+
+vim parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SOAPdT.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_NotmappedFemaleRef.fa"
+Output=open("SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/SdT25/SOAPdT_bowtieFemale.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/SdT25
+#SBATCH -J Chibowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+
+###############################################
+cd Trinity_output/	
+vim Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306823
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f Trinity_NotmappedFemaleRef.fa Trinity_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S Trinity_NotmappedFemaleRef $FEM_READ1  > ${FEM_SAMPLE}_Trin.sam
+samtools view -Sbh ${FEM_SAMPLE}_Trin.sam >${FEM_SAMPLE}_Trin.bam
+samtools sort ${FEM_SAMPLE}_Trin.bam >${FEM_SAMPLE}_sorted_Trin.bam
+samtools index ${FEM_SAMPLE}_sorted_Trin.bam
+samtools faidx Trinity_NotmappedFemaleRef.fa
+cat Trinity_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>Trinity_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_Trin.bam -a Trinity_scaffold_length.bed > Coverage_Female_TrinityScaffolds.bed
+cat Coverage_Female_TrinityScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_Trinity.txt
+
+
+
+vim parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+InputT="ContigsList_noFemaleCoverage_Trinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_NotmappedFemaleRef.fa"
+OutputT=open("Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Trinity_output/Trinity_bowtieFemale.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Trinity_output/
+#SBATCH -J Trbowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+####################################AMOS
+
+mkdir Join
+cp Trinity_output/Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+cp SdT25/SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+
+cd Join
+cat Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa > All_Malespecific_scaffolds.fa
+
+/galaxy/home/rxv923/src/cdhit/cd-hit-est -i All_Malespecific_scaffolds.fa -o all-Chimpanzee.cdhit.out -c 0.99
+
+vim library.txt
+
+lib1    bowtie  SRR2040591_R1.fastq SRR2040591_R2.fastq 247	0.65    FR
+
+source activate main
+perl /galaxy/home/rxv923/src/SSPACE-STANDARD-3.0_linux-x86_64/SSPACE_Standard_v3.0.pl -l library.txt -s all-Chimpanzee.cdhit.out
+
+#####################################################################
+
+cd standard_output
+STEP9A:
+
+vim ContigsList20percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/Female/SRR306823_1.fastq
+FEM_SAMPLE=SRR306798
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f standard_output.final.scaffolds.fasta standard_output.final.scaffolds
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S standard_output.final.scaffolds $FEM_READ1  > ${FEM_SAMPLE}_SSPades.sam
+samtools view -Sbh ${FEM_SAMPLE}_SSPades.sam >${FEM_SAMPLE}_SSPades.bam
+samtools sort ${FEM_SAMPLE}_SSPades.bam >${FEM_SAMPLE}_sorted_SSPades.bam
+samtools index ${FEM_SAMPLE}_sorted_SSPades.bam
+samtools faidx standard_output.final.scaffolds.fasta
+cat standard_output.final.scaffolds.fasta.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SSPades.bam -a SSPADE_scaffold_length.bed > Coverage_Female_SSPADESScaffolds.bed
+cat Coverage_Female_SSPADESScaffolds.bed | awk '$7 < 0.2 { print $1 }'  > ContigsList_noFemaleCoverage_SSPADE.txt
+
+vim parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="standard_output.final.scaffolds.fasta"
+Output=open("SSPADE_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+
+
+
+
+
+
+vim slurm_BowtieFemaleReads.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output
+#SBATCH -J Febowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+srun sh ContigsList20percentCoveragetoFemaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+##########################################
+
+vim ContigsList80percentCoveragetoMaleReads.sh
+#!usr/bin/sh
+# bail out on errors
+set ue
+MAL_READ1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/SRR2040591_R1.fastq
+MAL_READ2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/SRR2040591_R2.fastq
+MAL_SAMPLE=SRR2040591
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SSPADE_NoCoverageFemaleReads.fa SSPADE_NoCoverageFemaleReads
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SSPADE_NoCoverageFemaleReads -1 $MAL_READ1 -2 $MAL_READ2 > ${MAL_SAMPLE}_SSPades.sam
+srun samtools view -Sbh ${MAL_SAMPLE}_SSPades.sam >${MAL_SAMPLE}_SSPades.bam
+srun samtools sort ${MAL_SAMPLE}_SSPades.bam >${MAL_SAMPLE}_sorted_SSPades.bam
+srun samtools index ${MAL_SAMPLE}_sorted_SSPades.bam
+srun samtools faidx SSPADE_NoCoverageFemaleReads.fa
+srun cat SSPADE_NoCoverageFemaleReads.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_NoCoverageFemaleReads_scaffold_length.bed
+srun bedtools coverage -b ${MAL_SAMPLE}_sorted_SSPades.bam -a SSPADE_NoCoverageFemaleReads_scaffold_length.bed > Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed
+srun cat Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed | awk '$7 > 0.8 { print $1 }'  > ContigsList_noFemaleCoverage_SSPADE.txt.txt
+		
+
+
+
+
+vim parse_SSPadeContigsWithCoverageMaleReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SSPADE_NoCoverageFemaleReads.fa"
+Output=open("Male_Transcripts_Filtered.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+		
+
+ vim slurm_BowtieMaleReads.sh
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output/bowtie_Maleout.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output/
+#SBATCH -J bowtieM
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+		
+srun sh ContigsList80percentCoveragetoMaleReads.sh
+srun /galaxy/home/rxv923/myEnv/bin/python parse_SSPadeContigsWithCoverageMaleReads.py
+
+toAmos -s Male_Transcripts_Filtered.fa -o Male_Transcripts_Filtered.afg
+
+
+vim slurm_minimus2.sh
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output/minimus2_64out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Chimpanzee/SRR2040591/Join/standard_output/
+#SBATCH -J Minimus
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=64
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+#minimus2 Male_Transcripts_Filtered
+srun minimus2_64 Male_Transcripts_Filtered
+
+
+cat Male_Transcripts_Filtered.fasta Male_Transcripts_Filtered.singletons.seq > Male_Transcripts_Filtered_final.fa
+
+STEP10: Annotation
+
+/galaxy/home/rxv923/src/TransDecoder-3.0.1/TransDecoder.LongOrfs -t Male_Transcripts_Filtered_final.fa
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastp -query Male_Transcripts_Filtered_final.fa.transdecoder_dir/longest_orfs.pep  -db uniprot_sprot.pep  -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' -evalue 1e-5 -num_threads 10 > blastp.outfmt6
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastx -query Male_Transcripts_Filtered_final.fa -db uniprot_sprot.pep -num_threads 10 -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' > blastx.outfmt6
+
+blat Male_Transcripts_Filtered_final.fa /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone.pls

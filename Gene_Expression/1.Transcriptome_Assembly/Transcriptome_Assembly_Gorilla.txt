@@ -1,0 +1,1093 @@
+﻿STEP1: Check quality of the FASTQ files
+
+#Quality and Read length check / FastQValidator
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/check_sanity.sh GT911_R1.fastq GT911_R2.fastq
+
+#Adapter check
+##Copy adapter list from Trueseq
+cp /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trueseq_Adapter_MEDIUM_contaminant_list.txt .
+
+##Search for presence of adapter
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh GT911_R1.fastq
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh GT911_R2.fastq
+
+##Look for adapter and list the ones present
+vim adapter_list.txt
+>PrefixAdapter15/1
+GATCGGAAGAGCACACGTCTGAACTCCAGTCACATGTCAGAATCTCGTATGCCGTCTTCTGCTTG
+>PrefixUniversal/2
+AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT
+
+##Run Trimmomatic
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trimming_PE.sh GT911_R1.fastq adapter_list.txt
+
+##Quality check again
+fastqc GT911_R1.fastq_trimmed.fastq GT911_R2.fastq_trimmed.fastq
+
+##########################################################
+
+STEP2: Combine all the FASTQ files into one.
+cd /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/
+mkdir All
+cat 1-13-2014/GT911_R1.fastq_trimmed.fastq 6-6-2013/GT911_R1.fastq_trimmed.fastq > All/GT911_R1.fastq
+cat 1-13-2014/GT911_R2.fastq_trimmed.fastq 6-6-2013/GT911_R2.fastq_trimmed.fastq > All/GT911_R2.fastq
+cd All
+
+#Generate tophat2 assembly for reference
+nohup bowtie2-build -f gorGor5.fa gorGor5 &
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/Tophat.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX
+#SBATCH -J Tophat
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=7000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=218:00:00
+
+srun /galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2 --no-discordant --no-mixed --library-type fr-firststrand --read-realign-edit-dist 0 -o Tophat_Gorilla --num-threads 16 --mate-inner-dist 0 --mate-std-dev 200 --microexon-search --no-convert-bam /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5 GT911_R1.fastq GT911_R2.fastq
+
+srun samtools view -hb -f 69 Tophat_Gorilla/unmapped.bam -o Tophat_Gorilla/first.bam
+srun samtools view -hb -f 133 Tophat_Gorilla/unmapped.bam -o Tophat_Gorilla/second.bam
+
+
+#### Convert bam to fastq
+
+srun samtools bam2fq Tophat_Gorilla/first.bam > Tophat_Gorilla/first.fastq
+srun samtools bam2fq Tophat_Gorilla/second.bam > Tophat_Gorilla/second.fastq
+
+srun awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' Tophat_Gorilla/first.fastq | sort -S 8G -T. > read1.txt
+srun awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' Tophat_Gorilla/second.fastq | sort -S 8G -T. > read2.txt
+srun join read1.txt read2.txt | awk '{print $1"\n"$2"\n+\n"$3 > "unmapped_R1.fastq";print $1"\n"$4"\n+\n"$5 > "unmapped_R2.fastq"}'
+
+cat unmapped_R1.fastq | sed -e 's/^@HW.*/&\/1/g' > unmapped_R1_fix.fastq
+cat unmapped_R2.fastq | sed -e 's/^@HW.*/&\/2/g' > unmapped_R2_fix.fastq
+
+STEP3: Remove Female specific reads
+Testis RNASeq reads were mapped to the gorilla female reference genome with Tophat2
+
+###Tophat
+
+STEP5: Run assembly
+the unmapped reads (enriched for male-specific transcripts) were assembled with Trinity and SOAPdenovo-Trans. The generated contigs were aligned to the gorilla female reference genome with BLAT50, and contigs that aligned at >90% of their length with 100% identity were removed from subsequent steps.  
+
+##Trinity
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/Trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 60G --left unmapped_R1_fix.fastq --right unmapped_R2_fix.fastq --CPU 60 --SS_lib_type RF --output Trinity_unmappedSS60
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa Trinity_unmappedSS60/Trinity.fasta -minIdentity=100 -noHead Trinity_unmappedSS60/Trinity_blat.psl
+srun cat Trinity_unmappedSS60/Trinity_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Trinity_unmappedSS60/Blat_contigs_toFilter_90perAlign_Trinity.txt
+
+
+
+##SOAPdeNovoTrans
+samtools view -h -Sb accepted_hits.sam > accepted_hits.bam
+samtools sort accepted_hits.bam > accepted_hits_sorted.bam
+java -jar /galaxy/home/rxv923/src/picard-master/dist/picard.jar CollectInsertSizeMetrics I=accepted_hits_sorted.bam O=insert_size_metrics.txt H=insert_size_histogram.pdf
+
+vim config.txt # set insert size and other parameters
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/SoapDT25.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/
+#SBATCH -J SOAPdT25
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 6
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdT25_blat.psl
+srun cat SOAPdT25_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Blat_contigs_toFilter_90perAlign_25kmer.txt
+
+
+
+##########################
+/galaxy/home/rxv923/myEnv/bin/python
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+
+Input="SdT25/Blat_contigs_toFilter_90perAlign_35kmer.txt"
+Fasta="SdT25/SOAPdenovoGraph35.scafSeq"
+Output=open("SdT25/SOAPdT_FemaleUnmapped90.fa", "w")
+
+
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		continue
+	else:
+		#print (seq_record.id)
+		SeqIO.write(seq_record, Output, "fasta")
+			
+
+InputT="Trinity_unmappedSS60/Blat_contigs_toFilter_90perAlign_Trinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_unmappedSS60/Trinity.fasta"
+OutputT=open("Trinity_unmappedSS60/Trinity_FemaleUnmapped90.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		continue
+	else:
+		#print (seq_record.id)
+		#print (seq_record.id)
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+#########################################################################
+
+STEP6: Female Clean
+we removed contigs that were covered at over 90% of their length by mapped female gorilla liver RNAseq reads
+    Nature
+    478,
+    343–348
+    (20 October 2011)
+    doi:10.1038/nature10532
+	ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306808/SRR306808.sra
+	
+cd /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/
+wget ftp://ftp.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR306/SRR306808/SRR306808.sra
+fastq-dump -I --split-files SRR306808
+
+
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/SdT25/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/SdT25
+#SBATCH -J 25bowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_FemaleUnmapped90.fa SOAPdT_FemaleUnmapped90
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_FemaleUnmapped90 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808_SdT.sam
+srun samtools view -Sbh SRR306808_SdT.sam >SRR306808_SdT.bam
+srun samtools sort SRR306808_SdT.bam >SRR306808_sorted_SdT.bam
+srun samtools index SRR306808_sorted_SdT.bam
+srun samtools faidx SOAPdT_FemaleUnmapped90.fa
+srun cat SOAPdT_FemaleUnmapped90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted_SdT.bam -a SOAPdT_scaffold_length.bed > Coverage_Female_SOAPdTScaffolds.bed
+srun cat Coverage_Female_SOAPdTScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > Male_scaffolds_reatinedSdt.txt
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/trinity_out_dir/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/trinity_out_dir/
+#SBATCH -J Trbowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f Trinity_FemaleUnmapped90.fa Trinity_FemaleUnmapped90
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S Trinity_FemaleUnmapped90 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808.sam
+srun samtools view -Sbh SRR306808.sam >SRR306808.bam
+srun samtools sort SRR306808.bam >SRR306808_sorted.bam
+srun samtools index SRR306808_sorted.bam
+srun samtools faidx Trinity_FemaleUnmapped90.fa
+srun cat Trinity_FemaleUnmapped90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>Trinity_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted.bam -a Trinity_scaffold_length.bed > Coverage_Female_TrinityScaffolds.bed
+srun cat Coverage_Female_TrinityScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > Male_scaffolds_reatinedTrinity.txt
+
+
+##########################
+/galaxy/home/rxv923/myEnv/bin/python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Male_scaffolds_reatinedSdt.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_FemaleUnmapped90.fa"
+Output=open("SOAPdT_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+		
+			
+
+InputT="Male_scaffolds_reatinedTrinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_FemaleUnmapped90.fa"
+OutputT=open("Trinity_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+###################################################################
+
+####################################AMOS
+mkdir Join
+cp Trinity_unmappedSS60/Trinity_FemaleUnmapped90_FemaleReads90.fa Join/
+cp SdT25/SOAPdT_FemaleUnmapped90_FemaleReads90.fa Join/
+
+cd Join
+cat Trinity_FemaleUnmapped90_FemaleReads90.fa SOAPdT_FemaleUnmapped90_FemaleReads90.fa > All_FemaleUnmapped90_FemaleReads90.fa
+
+/galaxy/home/rxv923/src/cdhit/cd-hit-est -i All_FemaleUnmapped90_FemaleReads90.fa -o all-Gorilla.cdhit.out -c 0.99 > cdhit_all.out
+
+###Set the details for the library
+vim library.txt
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/sspace_all.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/
+#SBATCH -J SSpace
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+perl /galaxy/home/rxv923/src/SSPACE-STANDARD-3.0_linux-x86_64/SSPACE_Standard_v3.0.pl -l library.txt -s all-Gorilla.cdhit.out
+
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/standard_output/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/standard_output
+#SBATCH -J bowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f standard_output.final.scaffolds.fasta standard_output.final.scaffolds
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S standard_output.final.scaffolds /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808_SSP_FE.sam
+srun samtools view -Sbh SRR306808_SSP_FE.sam >SRR306808_SSP_FE.bam
+srun samtools sort SRR306808_SSP_FE.bam >SRR306808_sorted_SSP_FE.bam
+srun samtools index SRR306808_sorted_SSP_FE.bam
+srun samtools faidx standard_output.final.scaffolds.fasta
+srun cat standard_output.final.scaffolds.fasta.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted_SSP_FE.bam -a SSPADE_scaffold_length.bed > Coverage_Female_SSPADESScaffolds.bed
+srun cat Coverage_Female_SSPADESScaffolds.bed | awk '$7 < 0.2 { print $1 }'  > Male_scaffolds_reatinedSSP.txt
+
+
+##########################
+/galaxy/home/rxv923/myEnv/bin/python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Male_scaffolds_reatinedSSP.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="standard_output.final.scaffolds.fasta"
+Output=open("SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+		
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/standard_output/bowtie_Maleout.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/standard_output
+#SBATCH -J bowtieM
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90 -1 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/GT911_R1.fastq -2 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/GT911_R2.fastq > GT911_SOAPdT_Trini_k25_FemaleFiltered90.sam
+srun samtools view -Sbh GT911_SOAPdT_Trini_k25_FemaleFiltered90.sam >GT911_SOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools sort GT911_SOAPdT_Trini_k25_FemaleFiltered90.bam >GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools index GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools faidx SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa
+srun cat SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+srun bedtools coverage -b GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam -a SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed > Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+srun cat Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed | awk '$7 > 0.8 { print $1 }'  > Male_scaffolds_reatinedFemaleFiltered90SSP.txt
+
+
+/galaxy/home/rxv923/myEnv/bin/python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Male_scaffolds_reatinedFemaleFiltered90SSP.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa"
+Output=open("Male_Transcripts_Filtered.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+#################################################################################
+
+toAmos -s Male_Transcripts_Filtered.fa -o Male_Transcripts_Filtered.afg
+minimus2 Male_Transcripts_Filtered
+
+cat Male_Transcripts_Filtered.fasta Male_Transcripts_Filtered.singletons.seq > Male_Transcripts_Filtered_final.fa		
+
+
+STEP10: Annotation
+
+/galaxy/home/rxv923/src/TransDecoder-3.0.1/TransDecoder.LongOrfs -t Male_Transcripts_Filtered_final.fa
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastp -query Male_Transcripts_Filtered_final.fa.transdecoder_dir/longest_orfs.pep  -db uniprot_sprot.pep  -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' -evalue 1e-5 -num_threads 10 > blastp.outfmt6
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastx -query Male_Transcripts_Filtered_final.fa -db uniprot_sprot.pep -num_threads 10 -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' > blastx.outfmt6
+
+blat Male_Transcripts_Filtered_final.fa /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone.pls
+
+##############################################################
+
+Extract Amplicon genes
+
+Search for gene name and look for longest transcript name with more matches
+
+grep "BPY" blastp.outfmt6
+grep "VCY2" blastp.outfmt6
+
+grep "CDY" blastp.outfmt6
+grep "CDY" blastx.outfmt6
+scaffold236944|size168  CDYL2_MOUSE     100.000 168     55      2.73e-35        N/A     N/A     N/A     N/A     CDYL2_MOUSE Chromodomain Y-like protein 2
+scaffold368859|size151  CDYL1_HUMAN     38.462  151     39      1.1     N/A     N/A     N/A     N/A     CDYL1_HUMAN Chromodomain Y-like protein
+
+grep "DAZ" blastp.outfmt6
+grep "DAZ" blastx.outfmt6
+scaffold1263|size1218   DAZ2_HUMAN      88.327  1218    257     2.83e-145       N/A     N/A     N/A     N/A     DAZ2_HUMAN Deleted in azoospermia protein 2
+scaffold105982|size235  DAZL_HUMAN      59.184  235     98      1.11e-21        N/A     N/A     N/A     N/A     DAZL_HUMAN Deleted in azoospermia-like
+
+grep "HSFY" blastp.outfmt6
+Gene.1224::248::g.1224::m.1224  HSFY1_HUMAN     95.982  229     224     3.90e-159       N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.1557::408::g.1557::m.1557  HSFY1_HUMAN     89.730  275     185     2.00e-117       N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+
+grep "PRY" blastp.outfmt6
+grep "PRY" blastx.outfmt6
+
+grep "RBY" blastp.outfmt6
+Gene.5199::scaffold391|size1778::g.5199::m.5199 RBY1F_HUMAN     88.129  496     497     0.0     N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.5209::scaffold410|size1750::g.5209::m.5209 RBY1F_HUMAN     88.129  461     497     0.0     N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+
+grep "TSPY" blastp.outfmt6
+Gene.2092::708::g.2092::m.2092  TSPY3_HUMAN     98.592  108     71      1.76e-46        N/A     N/A     N/A     N/A     TSPY3_HUMAN Testis-specific Y-encoded protein 3
+Gene.2302::860::g.2302::m.2302  TSPYA_HUMAN     96.429  225     224     1.29e-161       N/A     N/A     N/A     N/A     TSPYA_HUMAN Testis-specific Y-encoded protein 10
+Gene.6047::scaffold1960|size1043::g.6047::m.6047        TSPYA_HUMAN     80.874  177     183     2.19e-96        N/A     N/A     N/A     N/A     TSPYA_HUMAN Testis-specific Y-encoded protein 10
+
+grep "VCY1" blastp.outfmt6
+Gene.8140::scaffold10476|size561::g.8140::m.8140        VCY1_HUMAN      80.000  181     125     2.61e-52        N/A     N/A     N/A     N/A     VCY1_HUMAN Testis-specific basic protein Y 1
+
+grep "XKRY" blastp.outfmt6
+grep "XKRY" blastx.outfmt6
+
+
+
+######################################
+Analysis of single end data
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5
+###Folder link should end with "/"
+SAMPLE_FOLDER=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/HenrikLab/
+R1=SRR306810_1.fastq_trimmed.fastq
+TOPHAT_FOLDER=Tophat_Gorilla
+
+
+#/galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2  --read-realign-edit-dist 0 -o $TOPHAT_FOLDER --num-threads 45  --microexon-search --no-convert-bam $FEMALE_REF ${SAMPLE_FOLDER}${R1}
+
+samtools view -hb -f 4 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/first.bam
+
+samtools bam2fq ${TOPHAT_FOLDER}/first.bam > ${TOPHAT_FOLDER}/first.fastq
+
+cat first.fastq | sed -e 's/^@SRR306810.*/&\/1/g' > unmapped_R1_fix.fastq
+
+
+
+##Trinity
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/HenrikLab/Trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/HenrikLab/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=60
+#SBATCH --mem=40000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 40G --single unmapped_R1_fix.fastq --CPU 60 --output Trinity_unmappedSS60
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa Trinity_unmappedSS60/Trinity.fasta -minIdentity=100 -noHead Trinity_unmappedSS60/Trinity_blat.psl
+srun cat Trinity_unmappedSS60/Trinity_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Trinity_unmappedSS60/Blat_contigs_toFilter_90perAlign_Trinity.txt
+
+
+
+##SOAPdeNovoTrans
+samtools view -h -Sb accepted_hits.sam > accepted_hits.bam
+samtools sort accepted_hits.bam > accepted_hits_sorted.bam
+java -jar /galaxy/home/rxv923/src/picard-master/dist/picard.jar CollectInsertSizeMetrics I=accepted_hits_sorted.bam O=insert_size_metrics.txt H=insert_size_histogram.pdf
+
+vim config.txt # set insert size and other parameters
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/SoapDT25.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/MIX/
+#SBATCH -J SOAPdT25
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 6
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdT25_blat.psl
+srun cat SOAPdT25_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Blat_contigs_toFilter_90perAlign_25kmer.txt
+
+
+
+#############Analysis of dataset separately
+This part is to test if any one data set is an issue
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/1-13-2014/Tophat.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/1-13-2014
+#SBATCH -J Tophat
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=200000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=218:00:00
+
+srun /galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2 --no-discordant --no-mixed --library-type fr-firststrand --read-realign-edit-dist 0 -o Tophat_Gorilla --num-threads 24 --mate-inner-dist 0 --mate-std-dev 200 --microexon-search --no-convert-bam /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5 GT911_R1.fastq_trimmed.fastq GT911_R2.fastq_trimmed.fastq
+
+srun samtools view -hb -f 69 Tophat_Gorilla/unmapped.bam -o Tophat_Gorilla/first.bam
+srun samtools view -hb -f 133 Tophat_Gorilla/unmapped.bam -o Tophat_Gorilla/second.bam
+
+
+#### Convert bam to fastq
+
+srun samtools bam2fq Tophat_Gorilla/first.bam > Tophat_Gorilla/first.fastq
+srun samtools bam2fq Tophat_Gorilla/second.bam > Tophat_Gorilla/second.fastq
+
+###srun python /nfs/thumper.galaxyproject.org/home/rxv923/scripts/fastq/fastqCombinePairedEnd.py Tophat_Gorilla/first.fastq Tophat_Gorilla/second.fastq
+
+srun awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' Tophat_Gorilla/first.fastq | sort -S 8G -T. > read1.txt
+srun awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' Tophat_Gorilla/second.fastq | sort -S 8G -T. > read2.txt
+srun join read1.txt read2.txt | awk '{print $1"\n"$2"\n+\n"$3 > "r1.fq";print $1"\n"$4"\n+\n"$5 > "r2.fq"}'
+
+
+cat r1.fq | sed -e 's/^@HW.*/&\/1/g' > unmapped_R1_fix.fastq
+cat r2.fq | sed -e 's/^@HW.*/&\/2/g' > unmapped_R2_fix.fastq
+
+
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/1-13-2014/Trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/1-13-2014/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=30000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=240:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 30G --left unmapped_R1_fix.fastq --right unmapped_R2_fix.fastq --CPU 24 --SS_lib_type RF --output Trinity_unmappedSS60
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa Trinity_unmappedSS60/Trinity.fasta -minIdentity=100 -noHead Trinity_unmappedSS60/Trinity_blat.psl
+srun cat Trinity_unmappedSS60/Trinity_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Trinity_unmappedSS60/Blat_contigs_toFilter_90perAlign_Trinity.txt
+
+
+cat unmapped_R1.fastq | sed -e 's/^@HW.*/&\/1/g' > unmapped_R1_fix.fastq
+cat unmapped_R2.fastq | sed -e 's/^@HW.*/&\/2/g' > unmapped_R2_fix.fastq
+
+
+
+blat Trinity.fasta /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone_Trinity.pls
+
+
+
+
+#############TO SAVE TIME run all the data at once
+
+mkdir PE_SE_All
+cat 1-13-2014/GT911_R1.fastq_trimmed.fastq 6-6-2013/GT911_R1.fastq_trimmed.fastq HenrikLab/SRR306810_1.fastq > PE_SE_All/Gorilla_R1.fastq
+cat 1-13-2014/GT911_R2.fastq_trimmed.fastq 6-6-2013/GT911_R2.fastq_trimmed.fastq > PE_SE_All/Gorilla_R2.fastq
+
+#####Obtaining the unmapped reads from previously run jobs
+cat HenrikLab/unmapped_R1_fix.fastq All/unmapped_R1_fix.fastq > PE_SE_All/Gorilla_unmapped_R1.fastq
+cat All/unmapped_R2_fix.fastq > PE_SE_All/Gorilla_unmapped_R2.fastq
+
+
+
+cd PE_SE_All/
+
+STEP5: Run assembly
+the unmapped reads (enriched for male-specific transcripts) were assembled with Trinity and SOAPdenovo-Trans. The generated contigs were aligned to the gorilla female reference genome with BLAT50, and contigs that aligned at >90% of their length with 100% identity were removed from subsequent steps.  
+
+##Trinity
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/trinity.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/
+#SBATCH -J Trinity
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=60
+#SBATCH --mem=500000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=240:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 60G --left Gorilla_unmapped_R1.fastq --right Gorilla_unmapped_R2.fastq --CPU 60 --output Trinity_unmapped60
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa Trinity_unmapped60/Trinity.fasta -minIdentity=100 -noHead Trinity_unmapped60/Trinity_blat.psl
+srun cat Trinity_unmapped60/Trinity_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Trinity_unmapped60/Blat_contigs_toFilter_90perAlign_Trinity.txt
+
+
+
+##SOAPdeNovoTrans
+Since soapdenovo cannot handle SE+PE like trinity we have to assign them separately 
+
+vim config.txt # set insert size and other parameters
+#maximal read length
+max_rd_len=150
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=150
+#average insert size
+avg_ins=245
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq file for read 1
+q1=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/unmapped_R1_fix.fastq
+#fastq file for read 2 always follows fastq file for read 1
+q2=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/unmapped_R2_fix.fastq
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=76
+#if sequence needs to be reversed
+reverse_seq=0
+#use for contig building only
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq files
+#fastq file for single reads
+q=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/HenrikLab/unmapped_R1_fix.fastq
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/SoapDT25.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/
+#SBATCH -J SOAPdT25
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=25
+#SBATCH --mem=300000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 25
+srun blat /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Gorilla/gorGor5.fa SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdT25_blat.psl
+srun cat SOAPdT25_blat.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > Blat_contigs_toFilter_90perAlign_25kmer.txt
+
+
+######
+mkdir SdT25
+mv SOAPd* SdT25/
+mv Blat_contigs_toFilter_90perAlign_25kmer.txt SdT25/
+
+##########################
+python
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+
+Input="SdT25/Blat_contigs_toFilter_90perAlign_25kmer.txt"
+Fasta="SdT25/SOAPdenovoGraph25.scafSeq"
+Output=open("SdT25/SOAPdT_FemaleUnmapped90.fa", "w")
+
+
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		continue
+	else:
+		#print (seq_record.id)
+		SeqIO.write(seq_record, Output, "fasta")
+			
+
+InputT="Trinity_unmapped60/Blat_contigs_toFilter_90perAlign_Trinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_unmapped60/Trinity.fasta"
+OutputT=open("Trinity_unmapped60/Trinity_FemaleUnmapped90.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		continue
+	else:
+		#print (seq_record.id)
+		#print (seq_record.id)
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+#########################################################################
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/SdT25/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/SdT25
+#SBATCH -J 25bowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=300000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_FemaleUnmapped90.fa SOAPdT_FemaleUnmapped90
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_FemaleUnmapped90 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808_SdT.sam
+srun samtools view -Sbh SRR306808_SdT.sam >SRR306808_SdT.bam
+srun samtools sort SRR306808_SdT.bam >SRR306808_sorted_SdT.bam
+srun samtools index SRR306808_sorted_SdT.bam
+srun samtools faidx SOAPdT_FemaleUnmapped90.fa
+srun cat SOAPdT_FemaleUnmapped90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted_SdT.bam -a SOAPdT_scaffold_length.bed > Coverage_Female_SOAPdTScaffolds.bed
+srun cat Coverage_Female_SOAPdTScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > Male_scaffolds_reatinedSdt.txt
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Trinity_unmapped60/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Trinity_unmapped60/
+#SBATCH -J Trbowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=300000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f Trinity_FemaleUnmapped90.fa Trinity_FemaleUnmapped90
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S Trinity_FemaleUnmapped90 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808.sam
+srun samtools view -Sbh SRR306808.sam >SRR306808.bam
+srun samtools sort SRR306808.bam >SRR306808_sorted.bam
+srun samtools index SRR306808_sorted.bam
+srun samtools faidx Trinity_FemaleUnmapped90.fa
+srun cat Trinity_FemaleUnmapped90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>Trinity_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted.bam -a Trinity_scaffold_length.bed > Coverage_Female_TrinityScaffolds.bed
+srun cat Coverage_Female_TrinityScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > Male_scaffolds_reatinedTrinity.txt
+
+##########################
+python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Male_scaffolds_reatinedSdt.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_FemaleUnmapped90.fa"
+Output=open("SOAPdT_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+		
+			
+
+InputT="Male_scaffolds_reatinedTrinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_FemaleUnmapped90.fa"
+OutputT=open("Trinity_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+###################################################################
+
+####################################AMOS
+mkdir Join
+cp Trinity_unmapped60/Trinity_FemaleUnmapped90_FemaleReads90.fa Join/
+cp SdT25/SOAPdT_FemaleUnmapped90_FemaleReads90.fa Join/
+
+cd Join
+cat Trinity_FemaleUnmapped90_FemaleReads90.fa SOAPdT_FemaleUnmapped90_FemaleReads90.fa > All_FemaleUnmapped90_FemaleReads90.fa
+
+/galaxy/home/rxv923/src/cdhit/cd-hit-est -i All_FemaleUnmapped90_FemaleReads90.fa -o all-Gorilla.cdhit.out -c 0.99 > cdhit_all.out
+
+###Set the details for the library
+vim library.txt
+lib1    bowtie  GT911_R1.fastq  GT911_R2.fastq  251     0.65    FR
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/sspace_all.out
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/
+#SBATCH -J SSpace
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=300000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+perl /galaxy/home/rxv923/src/SSPACE-STANDARD-3.0_linux-x86_64/SSPACE_Standard_v3.0.pl -l library.txt -s all-Gorilla.cdhit.out
+
+
+
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/standard_output/bowtie_out.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/standard_output
+#SBATCH -J bowtie
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=30000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f standard_output.final.scaffolds.fasta standard_output.final.scaffolds
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S standard_output.final.scaffolds /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/Female/SRR306808.fastq  > SRR306808_SSP_FE.sam
+srun samtools view -Sbh SRR306808_SSP_FE.sam >SRR306808_SSP_FE.bam
+srun samtools sort SRR306808_SSP_FE.bam >SRR306808_sorted_SSP_FE.bam
+srun samtools index SRR306808_sorted_SSP_FE.bam
+srun samtools faidx standard_output.final.scaffolds.fasta
+srun cat standard_output.final.scaffolds.fasta.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_scaffold_length.bed
+srun bedtools coverage -b SRR306808_sorted_SSP_FE.bam -a SSPADE_scaffold_length.bed > Coverage_Female_SSPADESScaffolds.bed
+srun cat Coverage_Female_SSPADESScaffolds.bed | awk '$7 < 0.2 { print $1 }'  > Male_scaffolds_reatinedSSP.txt
+
+
+##########################
+python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Male_scaffolds_reatinedSSP.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="standard_output.final.scaffolds.fasta"
+Output=open("SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+#######################################################
+		
+#!/bin/bash
+#
+#SBATCH -o /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/standard_output/bowtie_Maleout.txt
+#SBATCH -D /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/PE_SE_All/Join/standard_output
+#SBATCH -J bowtieM
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=40
+#SBATCH --mem=60000
+#SBATCH --mail-type=end
+#SBATCH --mail-user=v.rahul.simham@gmail.com
+#SBATCH --time=180:00:00
+
+
+#srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90
+#srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90 -1 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/GT911_R1.fastq -2 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/All/Join/GT911_R2.fastq > GT911_SOAPdT_Trini_k25_FemaleFiltered90.sam
+#srun samtools view -Sbh GT911_SOAPdT_Trini_k25_FemaleFiltered90.sam >GT911_SOAPdT_Trini_k25_FemaleFiltered90.bam
+#srun samtools sort GT911_SOAPdT_Trini_k25_FemaleFiltered90.bam >GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+#srun samtools index GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+#srun samtools faidx SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa
+#srun cat SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+#srun bedtools coverage -b GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam -a SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed > Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+#srun cat Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed | awk '$7 > 0.8 { print $1 }'  > Male_scaffolds_reatinedFemaleFiltered90SSP.txt
+srun /galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 --chunkmbs 500 -S SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90 /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Gorilla/HenrikLab/SRR306810_1.fastq_trimmed.fastq  > Gorilla_SOAPdT_Trini_k25_FemaleFiltered90.sam
+srun samtools view -Sbh Gorilla_SOAPdT_Trini_k25_FemaleFiltered90.sam >Gorilla_SOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools sort Gorilla_SOAPdT_Trini_k25_FemaleFiltered90.bam >Gorilla_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools index Gorilla_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+srun samtools faidx SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa
+srun cat SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+srun bedtools coverage -b Gorilla_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam -a SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed > Gorilla_Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+srun cat Gorilla_Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed | awk '$7 > 0.8 { print $1 }'  > Gorilla_Male_scaffolds_reatinedFemaleFiltered90SSP.txt
+
+
+samtools merge combined_gor.bam Gorilla_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam GT911_sortedSOAPdT_Trini_k25_FemaleFiltered90.bam
+
+bedtools coverage -b combined_gor.bam -a SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed > Combined_Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed
+cat Combined_Coverage_Male_SOAPdT_Trini_k25_FemaleFiltered90_scaffold_length.bed | awk '$7 > 0.8 { print $1 }'  > Combined_Male_scaffolds_reatinedFemaleFiltered90SSP.txt
+#####################################################
+python
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="Combined_Male_scaffolds_reatinedFemaleFiltered90SSP.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_Trini_k25_FemaleUnmapped90_FemaleReads90.fa"
+Output=open("Combined_Male_Transcripts_Filtered.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+#################################################################################
+
+toAmos -s Combined_Male_Transcripts_Filtered.fa -o Male_Transcripts_Filtered.afg
+minimus2 Male_Transcripts_Filtered
+
+cat Male_Transcripts_Filtered.fasta Male_Transcripts_Filtered.singletons.seq > Male_Transcripts_Filtered_final.fa		
+
+
+STEP10: Annotation
+
+/galaxy/home/rxv923/src/TransDecoder-3.0.1/TransDecoder.LongOrfs -t Male_Transcripts_Filtered_final.fa
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastp -query Male_Transcripts_Filtered_final.fa.transdecoder_dir/longest_orfs.pep  -db uniprot_sprot.pep  -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' -evalue 1e-5 -num_threads 10 > blastp.outfmt6
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastx -query Male_Transcripts_Filtered_final.fa -db uniprot_sprot.pep -num_threads 10 -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' > blastx.outfmt6
+
+blat Male_Transcripts_Filtered_final.fa /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone.pls
+
+##############################################################################
+
+grep "BPY" blastp.outfmt6
+grep "VCY2" blastp.outfmt6
+
+grep "CDY" blastp.outfmt6
+Gene.2040::638::g.2040::m.2040  CDY2_HUMAN      96.850  254     254     0.0     N/A     N/A     N/A     N/A     CDY2_HUMAN Testis-specific chromodomain protein Y 2
+
+grep "DAZ" blastp.outfmt6
+Gene.2691::1151::g.2691::m.2691 DAZL_CALJA      76.680  229     253     3.68e-133       N/A     N/A     N/A     N/A     DAZL_CALJA Deleted in azoospermia-like
+Gene.7311::scaffold5154|size793::g.7311::m.7311 DAZL_CALJA      83.092  207     207     5.41e-122       N/A     N/A     N/A     N/A     DAZL_CALJA Deleted in azoospermia-like
+Gene.7778::scaffold6551|size717::g.7778::m.7778 DAZL_CALJA      89.320  160     103     7.96e-59        N/A     N/A     N/A     N/A     DAZL_CALJA Deleted in azoospermia-like
+
+grep "HSFY" blastp.outfmt6
+Gene.1428::303::g.1428::m.1428  HSFY1_HUMAN     91.272  402     401     0.0     N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.1568::365::g.1568::m.1568  HSFY1_HUMAN     97.203  151     143     1.45e-98        N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.1569::365::g.1569::m.1569  HSFY1_HUMAN     93.407  115     91      3.15e-52        N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.5287::scaffold908|size1517::g.5287::m.5287 HSFY1_HUMAN     93.333  159     135     5.57e-85        N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.6621::scaffold3580|size913::g.6621::m.6621 HSFY1_HUMAN     94.079  238     152     1.50e-97        N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.6621::scaffold3580|size913::g.6621::m.6621 HSFY1_HUMAN     86.538  238     104     4.01e-56        N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+
+grep "PRY" blastp.outfmt6
+
+grep "RBY" blastp.outfmt6
+Gene.2258::776::g.2258::m.2258  RBY1F_HUMAN     91.346  212     208     1.61e-124       N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.2258::776::g.2258::m.2258  RBY1F_HUMAN     47.945  212     73      1.41e-06        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.3852::2663::g.3852::m.3852 RBY1E_HUMAN     89.899  99      99      7.12e-51        N/A     N/A     N/A     N/A     RBY1E_HUMAN RNA-binding motif protein, Y chromosome, family 1 member E
+Gene.3852::2663::g.3852::m.3852 RBY1E_HUMAN     58.427  99      89      3.35e-18        N/A     N/A     N/A     N/A     RBY1E_HUMAN RNA-binding motif protein, Y chromosome, family 1 member E
+Gene.3852::2663::g.3852::m.3852 RBY1E_HUMAN     47.368  99      95      3.78e-10        N/A     N/A     N/A     N/A     RBY1E_HUMAN RNA-binding motif protein, Y chromosome, family 1 member E
+Gene.6570::scaffold3473|size923::g.6570::m.6570 RBY1F_HUMAN     95.956  307     272     0.0     N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.6570::scaffold3473|size923::g.6570::m.6570 RBY1F_HUMAN     41.781  307     146     9.14e-17        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.6570::scaffold3473|size923::g.6570::m.6570 RBY1F_HUMAN     55.224  307     67      2.92e-10        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.6717::scaffold3768|size895::g.6717::m.6717 RBY1F_HUMAN     95.956  272     272     0.0     N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.6717::scaffold3768|size895::g.6717::m.6717 RBY1F_HUMAN     41.781  272     146     1.40e-16        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.6717::scaffold3768|size895::g.6717::m.6717 RBY1F_HUMAN     55.224  272     67      2.10e-10        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+Gene.11599::scaffold24232|size412::g.11599::m.11599     RBY1F_HUMAN     78.899  137     109     1.94e-45        N/A     N/A     N/A     N/A     RBY1F_HUMAN RNA-binding motif protein, Y chromosome, family 1 member F/J
+
+grep "TSPY" blastp.outfmt6
+Gene.6127::scaffold2484|size1043::g.6127::m.6127        TSPYA_HUMAN     80.874  177     183     2.19e-96        N/A     N/A     N/A     N/A     TSPYA_HUMAN Testis-specific Y-encoded protein 10
+Gene.6497::scaffold3328|size937::g.6497::m.6497 TSPYA_HUMAN     80.874  177     183     2.19e-96        N/A     N/A     N/A     N/A     TSPYA_HUMAN Testis-specific Y-encoded protein 10
+Gene.6510::scaffold3344|size935::g.6510::m.6510 TSPY8_HUMAN     97.260  191     146     3.96e-99        N/A     N/A     N/A     N/A     TSPY8_HUMAN Testis-specific Y-encoded protein 8
+Gene.7081::scaffold4596|size829::g.7081::m.7081 TSPY8_HUMAN     97.260  207     146     1.30e-98        N/A     N/A     N/A     N/A     TSPY8_HUMAN Testis-specific Y-encoded protein 8
+
+grep "VCY1" blastp.outfmt6
+Gene.9209::scaffold12222|size551::g.9209::m.9209        VCY1_HUMAN      80.000  181     125     2.61e-52        N/A     N/A     N/A     N/A     VCY1_HUMAN Testis-specific basic protein Y 1
+
+grep "XKRY" blastp.outfmt6
+
+
+
+vim Gorilla_Final.fa
+
+>CDY Gene.2040::638::g.2040::m.2040 type:3prime_partial len:255 638:762-1(-)
+ATGGCTTCCCAGGAGTTTGAGGTTGAAACTATTGTTGACAAAAGACAGGATAAAAATGGGAATACACAGTATTTGGTTCGGTGGAAAGGTTATGACAAACAGGATGACACTTGGGAACCAGAGCAGCACCTCATGAACTGTGAAAAATGCGTACATGATTTTAATAGACGACAGACTGAAAAACAGAAAAAACTGACATGGACTACAACCAGTAGAATTTTTTCAAACAATGCCAGAAGAAGAACTTCCAGATCTACAAAAGCAAACTATTCTAAGAACTCCCCTAAAACGCTAGTGACTGATAAACACCACAGGTCCAAAAACCGCAAGTTATTTGCTGCCAGCAAGAACGTTAGGAGAAAGTCAGCTTCAACTCTCTCCGACACAAAGAATATGGAGATAATAAATTCAACTATCGAGACCCTTGCACCTGACAGCCCCTTTAACCACAAGAAAACTGTGAGTGGCTTTCAGAAACTTGAGAAACTGGACCCTATTGCAGCAGATCAGCAGGACACGGTGGTCTTCAAGGTGACAGAAGGGAAACTCCTCCGGGACCCTTTGTCAAGTCCTGGTGCAGAACAGACTGGAATACAGAACAGGACTCAGATACACCCACTAATGTCACAGATGTCTGGCTCAGTTACTGCTTCCATGGCCACAGGTTCAGCTACCCGAAAAGGTATAGTGGTATTAATAGACCCATTAGCAGCCAATGGGACAACAGACATGCATACCTCAGTTCCAAGAGTGAAAGGTGGG
+
+>DAZ Gene.2691::1151::g.2691::m.2691 type:3prime_partial len:230 1151:689-3(-)
+ATGTCTTCTGCAAATCCTGAGACTCCAAACTCAACCATCTCCAGAGAGGCCAGCACCCAGTCTTCATCAGCTGCAGCTAGCCAAGGCTGGGTGTTACCAGAAGGCAAAATCGTGCCCAACACTGTTTTTGTTGGTGGAATTGATGATAGGATGGATGCAACTGAGATTAGAAGCTTCTTTGGTAGATACGGTTCAGTGAAAGAAGTGAAGATAATCACCAATCGAACTGGTGTGTCCAAAGGCTATGGATTTGTTTCGTTTGTTAATGACGTGGATGTCCAGAAGATAGTAGAATCACAGATACATTTCCATGGTAAAAAGCTGAAGCTGGGCCCTGCAATCAGGAAACAAAAGTTATGTGCTCGTCGTGTGCAGCCAGGTCCTTTGGTGTCTAATCCGCCTCCTCCGCCACAGTTTCAGAACGTCTGGCAGAATCCAAACACTGAAACCTACCTGCAGCCCCTAATCACGCTGAATCCTGTAACTCAGTATGTTCAGATGCCGCCACAGTGGCCTGTTGGGGAGCAAAGGAGnTATGnTGTnCCTCCGnCTTnTnCAnATCCTGTTAACTACCACTGTAATGAAGTTGATCCAGGAGCTGAAGTTGTGCCAAATGAATGTTCAGTTCATGAAGCTACTCCACCCTCTGGAAATGGCCCACAAAAGAAATCTGTGGACCGAAGCATA
+
+>HSFY Gene.1428::303::g.1428::m.1428 type:complete len:402 303:1339-134(-)
+ATGGCACATGTTTCTTCAGAAACTCAAGATGTTTCTCCCAAAGATGAATTAACTGCTTCAGAAGCCTCCCCTAGGTCTCCAGTGTGTGAACACACCTTCCCTGGGGACTCAGACTTACGGTCAATGATTGAAGAACATGCTTTTCAGGTTTTGTCACAAGGATCCTTGTTAGAAAGGCCACCTTACACAGTTTGTGTCTCTGAGCCAGATAAAGATGATGATTTTCTTTCTCTGAACTTTCCCAGGAAACTTTGGAAAATAGTGGAAAGTGACCAGTTCAAGTCTATTTCATGGGATGAGAATGGAACTTGCATAGTGATTAATGAAGAACTCTTCAAGAAAGAAATTTTGGAAACAAAGGCTCCTTACAGAATATTTCAAACTGATGCTATCAAAAGTTTTGTTCGACAGCTCAACCTTTATGGATTTAGTAAAATTCAACGGAATTTTCAAAGATCTGCCTTTCTAGCCACCTTTCTGGCAGAAGAGAAAGAATCCTCTGTCTTAAGCAAGTTAAAGCTCTATTATAATCCAAATTTCAAGCGTGGCTATCCCCAACTTTTAGTAAGAGTGAAGAGAAGAATnGGTGTTAAAAATGCTTCAnnTATATCTACTnTnTTCAATGAAGATTTCAACnAGAAGCATTTTAGAGCAGnGGCTAACATGGAGAATCATAATTCTGCCTTAGCTGCTGAAGCTAnTGAAGAAAGTTnATTTTCAGCCTnTAAAAATTTAAATATGCCTCTAACAAGGGAGTCTTCCGTCAGACATATGATTGCTAATTCATCGGAACTAATTAGAAGTGATTTCCTTCCTCCTTCACCTTCAACCTCAGTGGGACCATCAGAACAAATTGCAGCAGATCAACCTGCTATTTTAAATCAGCTGACCACTATTCATACGCAGTCTCATAGCACCTACATGCAAGCAAGGGGCCACATTGTGAATTTTATTACAACCACAACTTCTCAATACCACATAATATCTCCCTTAGAAAATTGTTTTTTGGGTCTGACAGTGGAACCATCTGCTATTCCAACAAGATATCCTGTGGTATCAGTCAAGGAGGCTCCATATCCTAATCTGCTACCAGCAGGCAACCCGTGGTTGCAAATGCCTACGATCGCTGATAGATCAGCTGCCCCTCGTTCCAGGCTAGCTCTTCAACCATCACCACTGGACAAATATCACCCTAATTACAACTGA
+
+
+>RBY Gene.6570::scaffold3473|size923::g.6570::m.6570 type:internal len:308 scaffold3473|size923:923-3(-)
+GCGAACCTCAGGCTCTTTGTCCTACTAAAAAGCGCAGCATTTTGGAAAGTGGAGGTCGGAGGATGGCGTGAAGTCAGGAGTTTGAGACCAGCCTGGGTAACCACAATGGTAGAAGCAGATCATCCTGGCAAGCTTTTCATTGGTGGCCTCAATAGAGAAACCAATGAGAAGATGCTTAAAGCAGTGTTTGGGAAACATGGTCCCATATCAGAAGTTCTTTTGATAAAGGATCAAACCAGCAAATCCAGAGGCTTTGCCTTTATTACTTTTGAGAACCCTGCAGATGCTAAGAATGCTGCCAAAGATATGAATGGAAAGTCTTTGGATGGAAAAGCAATAAAAGTAGAACAAGCCAAGAAACCATCTTTTCAAAGTGATGGTAGGCGGAGACCACCAGCTTCTTCGAGAAACAGAAGCCCTTCAGGAAGTCTGAGATCTGCAAGAGGAAGCAGTGGAGGAAAAAGAGGGTGGCTTCCCTCACATGAAGGACACCTGGATGATGGTGGATACACTCCTGATCTCAAGATGAGTTATTCTAGGGGACTCATTCCAGTTAAAAGAGGTCCATCTTCAAGAAGTGGAGGTCCTCCTCCGAAAAAATCTGCTCCTTCTGCTGTGGCAAGTAGCAATAGTGGGATGGGAAGCCAAGGTCCCATGTCACAGAGAAGAGAGAATTATGGAGTTCCTCCACGCAGAGCGACAGTATCTTCCTGGAGAAATGATCATATGTCACCAAGAGATGATGGTTATGCAACTAACGATGGAAATCATCCAAGTTGCCAAGAAACGAGGGATTATGCTCCACCATCTAGAGGCTATGCATACCGTGATAATGGTCATTCTAATCGGGATGAACATTCCTCTAGAGGATATAGAAATCATCGAAGTTCCCGAGAAACTAGGGATTATGCTCCACCATCT
+
+>TSPY Gene.6127::scaffold2484|size1043::g.6127::m.6127 type:5prime_partial len:177 scaffold2484|size1043:1-531(+)
+GAGGAGGGCCTCGTGGAGCGGCAGGAGGAGGCCCAGCGGGCACAGCCTGGCCCTGGGCCCATGACCCCAGAGTCTGCACTGGAGGAGCTGCTGGCCGTTCAGGTGGAGCTGGAGCCGGTTAATGCCCAAGCCAGGAAGGCCTTTTCTCGGCAGAGGGAAAAGATGGAGCGGAGGCGCAAGCCCCACCTAGACCGCAGAGGCGCCGTCATCCAGAGCGTCCCTGGCTTCTGGGCCAATGTTATTGCAAACCACCCCCAGATGTCAGCCCTGATCACTGACGAAGATGAAGACATGCTGAGCTACATGGTCAGCCTGGAGGTGGAAGAAGAGAAGCATCCTGTTCATCTCTGCAAGATCATGTTGTTCTTTCGGAGTAACCCCTACTTCCAGAATAAAGTGATTACCAAGGAATATCTGGTGAACATCACAGGTGACAGGTGGCTCCCAGGATGGGTAGTGGAAGGAAGATGGTGGGTGGATCATTGCCAATGTGATCCAGCCCCCTTCCCACAAAAACTCCTGTCTCTGTAG
+

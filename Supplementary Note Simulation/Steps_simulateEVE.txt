@@ -1,0 +1,396 @@
+((((Bonnobo,Chimp),Human),Gorilla),Orangutan);
+
+#We should paste all the files into the folder where EVE is installed, it gives segmentation fault if files are outside EVE source folder.
+
+
+
+
+#test run simulations
+  -h the value of theta used for simulations
+  -g the value of sigma^2 used for simulations
+  -a the value of alpha used for simulations
+  -j the value of beta used for simulations
+./EVEmodel -H -n 1 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 10 -g 5 -a 2 -j 3 -f _trialRun -v 10
+
+./EVEmodel -O -o 3 -o 4 -n 1 -t data/examplePhylo.newick -i data_Apes/exampleNindivs.nindiv -d data/simExpr_1genes_theta10.00_sig25.00_alp2.00_beta3.00_trialRun.dat -f _trialRun -v 10
+
+./EVEmodel -S -n 1 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -d data/simExpr_1genes_theta10.00_sig25.00_alp2.00_beta3.00_trialRun.dat -f _trialRunS -v 10
+#theta, sigma^2, alpha, and beta
+9.26948742049124518871e+00 6.58723107871320667783e+00 8.75939720296705859326e-01 1.31757472640104333905e+00
+
+STEP one:
+Simulate data as defined in EVE paper, with 9 gene families and sample size same as apes counts
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripaper -v 10
+
+Run:
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripaper -v 10
+Reading tree (with species names as integers)
+Number of species: 5
+Reading nindivs file
+Considering 9 simulated genes
+node 0:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 2  level: 4
+node 1:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 3  level: 4
+node 2:  down: 6  ups: -1, -1  bl: 525.000000  reg: 0  nindiv: 23  level: 3
+node 3:  down: 7  ups: -1, -1  bl: 700.000000  reg: 0  nindiv: 2  level: 2
+node 4:  down: 8  ups: -1, -1  bl: 1500.000000  reg: 0  nindiv: 3  level: 1
+node 5:  down: 6  ups: 0, 1  bl: 425.000000  reg: 0  nindiv: 0  level: 3
+node 6:  down: 7  ups: 5, 2  bl: 175.000000  reg: 0  nindiv: 0  level: 2
+node 7:  down: 8  ups: 6, 3  bl: 800.000000  reg: 0  nindiv: 0  level: 1
+node 8:  down: -1  ups: 7, 4  bl: 0.000000  reg: 0  nindiv: 0  level: 0
+====simulating 9 genes
+  printed data to data/simExpr_9genes_theta100.00_sig25.00_alp3.00_beta6.00_SimRoripaper.dat
+====estimating shared beta
+estimated shared beta as 8.246010 in 28 seconds
+====testing beta shared vs vary for each gene
+  gene 0 LRtest stat is <<9.463303>>
+  gene 1 LRtest stat is <<0.532641>>
+  gene 2 LRtest stat is <<1.362106>>
+  gene 3 LRtest stat is <<1.145917>>
+  gene 4 LRtest stat is <<1.652836>>
+  gene 5 LRtest stat is <<0.013443>>
+  gene 6 LRtest stat is <<1.154288>>
+  gene 7 LRtest stat is <<2.158185>>
+  gene 8 LRtest stat is <<1.193164>>
+did indiv gene tests in 86 seconds
+
+Simulation 2:
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripaper1 -v 10
+Reading tree (with species names as integers)
+Number of species: 5
+Reading nindivs file
+Considering 9 simulated genes
+node 0:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 2  level: 4
+node 1:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 3  level: 4
+node 2:  down: 6  ups: -1, -1  bl: 525.000000  reg: 0  nindiv: 23  level: 3
+node 3:  down: 7  ups: -1, -1  bl: 700.000000  reg: 0  nindiv: 2  level: 2
+node 4:  down: 8  ups: -1, -1  bl: 1500.000000  reg: 0  nindiv: 3  level: 1
+node 5:  down: 6  ups: 0, 1  bl: 425.000000  reg: 0  nindiv: 0  level: 3
+node 6:  down: 7  ups: 5, 2  bl: 175.000000  reg: 0  nindiv: 0  level: 2
+node 7:  down: 8  ups: 6, 3  bl: 800.000000  reg: 0  nindiv: 0  level: 1
+node 8:  down: -1  ups: 7, 4  bl: 0.000000  reg: 0  nindiv: 0  level: 0
+====simulating 9 genes
+  printed data to data/simExpr_9genes_theta100.00_sig25.00_alp3.00_beta6.00_SimRoripaper1.dat
+====estimating shared beta
+estimated shared beta as 8.246010 in 28 seconds
+====testing beta shared vs vary for each gene
+  gene 0 LRtest stat is <<9.463303>>
+  gene 1 LRtest stat is <<0.532641>>
+  gene 2 LRtest stat is <<1.362106>>
+  gene 3 LRtest stat is <<1.145917>>
+  gene 4 LRtest stat is <<1.652836>>
+  gene 5 LRtest stat is <<0.013443>>
+  gene 6 LRtest stat is <<1.154288>>
+  gene 7 LRtest stat is <<2.158185>>
+  gene 8 LRtest stat is <<1.193164>>
+did indiv gene tests in 86 seconds
+
+############Cannot have replicates, gives the same numbers with same parameters
+
+
+
+Simulations 2:
+Change sigma^2:0.5,1,3,5,10,15,20,40,60
+T^2=10, alpha=3
+so beta= 0.5:60,1:30,3:10,5:6,10:3,15:2,20:1.33,40:0.75,60:0.5
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 0.5 -a 3 -j 60 -f _SimRoripapersigma0.5beta60 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 1 -a 3 -j 30 -f _SimRoripapersigma1beta30 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 3 -a 3 -j 10 -f _SimRoripapersigma3beta10 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripapersigma5beta6 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 10 -a 3 -j 3 -f _SimRoripapersigma10beta3 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 15 -a 3 -j 2 -f _SimRoripapersigma15beta2 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 20 -a 3 -j 1.33 -f _SimRoripapersigma20beta1.33 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 40 -a 3 -j 0.75 -f _SimRoripapersigma40beta0.75 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 60 -a 3 -j 0.5 -f _SimRoripapersigma60beta0.5 -v 10
+
+
+Simulations at /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/simulationRori_EVE/EVE_release/
+sh simulation_RoriEVE_parameters_sigma2_0.5to60.sh > simulation_RoriEVE_parameters_sigma2_0.5to60.sh_log.out 2>&1
+
+
+Simulations 3:
+Change alpha:0.5,1,3,5,10,15,20,40,60
+T^2=10, sigma^2=5
+so beta= 0.5:1,1:2,3:6,5:10,10:20,15:30,20:40,40:80,60:120
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 0.5 -j 1 -f _SimRoripaperalpha0.5beta1 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 1 -j 2 -f _SimRoripaperalpha1beta2 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripaperalpha3beta6 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 5 -j 10 -f _SimRoripaperalpha5beta10 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 10 -j 20 -f _SimRoripaperalpha10beta20 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 15 -j 30 -f _SimRoripaperalpha15beta30 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 20 -j 40 -f _SimRoripaperalpha20beta40 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 40 -j 80 -f _SimRoripaperalpha40beta80 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 60 -j 120 -f _SimRoripaperalpha60beta120 -v 10
+
+Simulations at /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/simulationRori_EVE/EVE_release/
+sh simulation_RoriEVE_parameters_aplha_0.5to60.sh > simulation_RoriEVE_parameters_alpha_0.5to60.sh_log.out 2>&1
+
+Simulations 4:
+Change T^2:0.5,1,3,5,10,15,20,40,60
+alpha=3, sigma^2=5
+so beta= 0.5:0.3,1:0.6,3:1.8,5:3,10:6,15:9,20:12,40:24,60:36
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j .3 -f _SimRoripapertaw0.5beta0.3 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j .6 -f _SimRoripapertaw1beta0.6 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 1.8 -f _SimRoripapertaw3beta1.8 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 3 -f _SimRoripapertaw5beta3 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripapertaw10beta6 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 9 -f _SimRoripapertaw15beta9 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 12 -f _SimRoripapertaw20beta12 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 24 -f _SimRoripapertaw40beta24 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 36 -f _SimRoripapertaw60beta36 -v 10
+
+Simulations at /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/simulationRori_EVE/EVE_release/
+sh simulation_RoriEVE_parameters_taw_0.5to60.sh > simulation_RoriEVE_parameters_taw_0.5to60.sh_log.out 2>&1
+
+
+Simulations 5:
+Change theta:0.5,1,3,5,10,15,20,40,60,100
+alpha=3, sigma^2=5 beta=6
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 0.5 -g 5 -a 3 -j 6 -f _SimRoripapertheta0.5 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 1 -g 5 -a 3 -j 6 -f _SimRoripapertheta1 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 3 -g 5 -a 3 -j 6 -f _SimRoripapertheta3 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 5 -g 5 -a 3 -j 6 -f _SimRoripapertheta5 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 10 -g 5 -a 3 -j 6 -f _SimRoripapertheta10 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 15 -g 5 -a 3 -j 6 -f _SimRoripapertheta15 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 20 -g 5 -a 3 -j 6 -f _SimRoripapertheta20 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 40 -g 5 -a 3 -j 6 -f _SimRoripapertheta40 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 60 -g 5 -a 3 -j 6 -f _SimRoripapertheta60 -v 10
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripapertheta100 -v 10
+
+Simulations at /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/simulationRori_EVE/EVE_release/
+sh simulation_RoriEVE_parameters_theta_0.5to60.sh > simulation_RoriEVE_parameters_theta_0.5to60.sh_log.out 2>&1
+
+###open each file using the sed to remove empty lines and copy them to excel sheet to compare.
+sed '/^$/d' results/indivBetaMLparams9genes_
+###use R script D:/Box Sync/Makova Lab/Ychr/Results/Read_simulation_plot_heatmap.R
+to convert the log Likelihood Ratio test values to P values pchisq(x, df=1, lower.tail=FALSE)
+
+STEP SHIFT in GENE EXPRESSION:
+Simulate data as defined in EVE paper, with 9 gene families and sample size same as apes counts
+
+./EVEmodel -P -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -f _Test_SimGeneExpshift -v 10
+Requires results/sharedThetaMLparams.res to be set
+
+vim results/sharedThetaMLparams_Test_SimGeneExpshift.res
+
+100 5 3 6
+75 5 3 6 
+#############################
+############################
+############################The random generator sets same seed each time and doesnot give random numbers for simulation replicates.
+#https://gist.github.com/PhDP/2366579
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <gsl/gsl_rng.h>
+#include <gsl/gsl_randist.h>
+
+int main(int argc, const char *argv[])
+{
+    int i;
+    // GSL's Taus generator:
+    gsl_rng *rng = gsl_rng_alloc(gsl_rng_taus2);
+    // Initialize the GSL generator with time:
+    gsl_rng_set(rng, time(NULL)); // Seed with time
+#####################################
+
+Update the probabilityfunctions.c with random generator using time()
+
+//simulates expr vals for each gene based on param vals in simRegimes
+#####Change 1
+#include<time.h> //Rahul added to update generator seed
+
+#####Change 2
+void simExprEachGene() {
+  int i, j;
+  double *Es, **Cov; 
+  gsl_vector *gslE, *gslexpr;
+  gsl_matrix *gslCov;
+  
+  //RV Initialize the GSL generator with time
+  time_t t;
+  t=time(NULL);
+  gsl_rng_set(grng, t); // Seed with time
+  //RV end of modification
+
+ ########################################################################################################## 
+#!/usr/bin/sh
+
+for i in `seq 1 100`
+do
+  ./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _simulationReplicate${i} -v 10
+  echo "output: $i"
+done
+
+
+
+sh simulation_100replicates_EVEroriParameters.sh > simulation_100replicates_EVEroriParameters.sh_log.out 2>&1
+
+vim simulation_100replicates_10sampleseach_EVEroriParameters.sh
+#!/usr/bin/sh
+
+for i in `seq 1 100`
+do
+  ./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _10sampleseach_simulationReplicate${i} -v 10
+  echo "output: $i"
+done
+
+sh simulation_100replicates_10sampleseach_EVEroriParameters.sh > simulation_100replicates_10sampleseach_EVEroriParameters.sh_log.out 2>&1
+
+
+vim simulation_100replicates_2-3sampleseach_EVEroriParameters.sh
+#!/usr/bin/sh
+
+for i in `seq 1 50`
+do
+  ./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs_2-3each.nindiv -h 100 -g 5 -a 3 -j 6 -f _max3sampleseach_simulationReplicate${i} -v 10
+  echo "output: $i"
+done
+
+sh simulation_100replicates_2-3sampleseach_EVEroriParameters.sh > simulation_50replicates_2-3sampleseach_EVEroriParameters.sh_log.out 2>&1
+############################################
+In excel sheet open the files with simulated theat = 100 and theta =60
+For each species replace the expression values for theta100 with 60 and keep all the other sample values the same.
+Then run the test for shift in expression
+
+./EVEmodel -O -o 1 -o 2 -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -d data_Apes/branch_wiseTest_rest_Theta100_Bonobo_Theta60_EVEroriparams.dat -f _BonoboTheta60ExprShift -v 10
+
+./EVEmodel -O -o 1 -o 2 -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -d data_Apes/branch_wiseTest_rest_Theta100_Bonobo_Theta60_EVEroriparams.dat -f _BonoboTheta60ExprShift -v 10
+Reading tree (with species names as integers)
+Number of species: 5
+Reading nindivs file
+Read in tree from data_Apes/Great_apest.awk
+node 0:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 2  level: 4
+node 1:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 3  level: 4
+node 2:  down: 6  ups: -1, -1  bl: 525.000000  reg: 0  nindiv: 23  level: 3
+node 3:  down: 7  ups: -1, -1  bl: 700.000000  reg: 0  nindiv: 2  level: 2
+node 4:  down: 8  ups: -1, -1  bl: 1500.000000  reg: 0  nindiv: 3  level: 1
+node 5:  down: 6  ups: 0, 1  bl: 425.000000  reg: 0  nindiv: 0  level: 3
+node 6:  down: 7  ups: 5, 2  bl: 175.000000  reg: 0  nindiv: 0  level: 2
+node 7:  down: 8  ups: 6, 3  bl: 800.000000  reg: 0  nindiv: 0  level: 1
+node 8:  down: -1  ups: 7, 4  bl: 0.000000  reg: 0  nindiv: 0  level: 0
+Read 9 genes over 33 individuals from file data_Apes/branch_wiseTest_rest_Theta100_Bonobo_Theta60_EVEroriparams.dat
+Testing constant vs branch-specific thetas per gene
+Getting MLs under model of one theta
+  gene 0: one theta logL=-123.184324
+  gene 1: one theta logL=-114.735212
+  gene 2: one theta logL=-113.384691
+  gene 3: one theta logL=-120.336546
+  gene 4: one theta logL=-86.568763
+  gene 5: one theta logL=-122.586535
+  gene 6: one theta logL=-121.670456
+  gene 7: one theta logL=-122.556573
+  gene 8: one theta logL=-168.733985
+Getting MLs under model of branch-specific shift
+  gene 0: two theta logL=-120.958748
+  gene 1: two theta logL=-113.751128
+  gene 2: two theta logL=-112.960796
+  gene 3: two theta logL=-119.075205
+  gene 4: two theta logL=-86.026003
+  gene 5: two theta logL=-121.910510
+  gene 6: two theta logL=-121.364706
+  gene 7: two theta logL=-122.230226
+  gene 8: two theta logL=-167.411489
+Finished one vs two theta analysis in 155 sec
+Wrote results to:
+        results/oneThetaMLparams_BonoboTheta60ExprShift.res
+        results/twoBSThetaMLparams_BonoboTheta60ExprShift.res
+        results/oneThetaMLs_BonoboTheta60ExprShift.res
+        results/twoBSThetaMLs_BonoboTheta60ExprShift.res
+        results/BSThetaTestLRTs_BonoboTheta60ExprShift.res
+
+#perform the same test where there is no shift in theta.
+
+./EVEmodel -O -o 4 -o 5 -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -d data_Apes/branch_wiseTest_rest_Theta100_Bonobo_Theta60_EVEroriparams.dat -f _BonoboTheta60ExprShift_NonShiftBranch -v 10
+Reading tree (with species names as integers)
+Number of species: 5
+Reading nindivs file
+Read in tree from data_Apes/Great_apest.awk
+node 0:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 2  level: 4
+node 1:  down: 5  ups: -1, -1  bl: 100.000000  reg: 0  nindiv: 3  level: 4
+node 2:  down: 6  ups: -1, -1  bl: 525.000000  reg: 0  nindiv: 23  level: 3
+node 3:  down: 7  ups: -1, -1  bl: 700.000000  reg: 0  nindiv: 2  level: 2
+node 4:  down: 8  ups: -1, -1  bl: 1500.000000  reg: 0  nindiv: 3  level: 1
+node 5:  down: 6  ups: 0, 1  bl: 425.000000  reg: 0  nindiv: 0  level: 3
+node 6:  down: 7  ups: 5, 2  bl: 175.000000  reg: 0  nindiv: 0  level: 2
+node 7:  down: 8  ups: 6, 3  bl: 800.000000  reg: 0  nindiv: 0  level: 1
+node 8:  down: -1  ups: 7, 4  bl: 0.000000  reg: 0  nindiv: 0  level: 0
+Read 9 genes over 33 individuals from file data_Apes/branch_wiseTest_rest_Theta100_Bonobo_Theta60_EVEroriparams.dat
+Testing constant vs branch-specific thetas per gene
+Getting MLs under model of one theta
+  gene 0: one theta logL=-123.184324
+  gene 1: one theta logL=-114.735212
+  gene 2: one theta logL=-113.384691
+  gene 3: one theta logL=-120.336546
+  gene 4: one theta logL=-86.568763
+  gene 5: one theta logL=-122.586535
+  gene 6: one theta logL=-121.670456
+  gene 7: one theta logL=-122.556573
+  gene 8: one theta logL=-168.733985
+Getting MLs under model of branch-specific shift
+  gene 0: two theta logL=-121.523099
+  gene 1: two theta logL=-114.316718
+  gene 2: two theta logL=-112.809990
+  gene 3: two theta logL=-120.162488
+  gene 4: two theta logL=-85.376951
+  gene 5: two theta logL=-122.423164
+  gene 6: two theta logL=-121.462439
+  gene 7: two theta logL=-122.238282
+  gene 8: two theta logL=-168.635484
+Finished one vs two theta analysis in 143 sec
+Wrote results to:
+        results/oneThetaMLparams_BonoboTheta60ExprShift_NonShiftBranch.res
+        results/twoBSThetaMLparams_BonoboTheta60ExprShift_NonShiftBranch.res
+        results/oneThetaMLs_BonoboTheta60ExprShift_NonShiftBranch.res
+        results/twoBSThetaMLs_BonoboTheta60ExprShift_NonShiftBranch.res
+        results/BSThetaTestLRTs_BonoboTheta60ExprShift_NonShiftBranch.res
+
+		
+#################################################################################################################
+
+
+Change sigma^2:0.5,1,3,5,10,15,20,40,60
+T^2=10, alpha=3
+so beta= 0.5:60,1:30,3:10,5:6,10:3,15:2,20:1.33,40:0.75,60:0.5
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 0.5 -a 3 -j 60 -f _SimRoripapersigma0.5beta60 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 1 -a 3 -j 30 -f _SimRoripapersigma1beta30 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 3 -a 3 -j 10 -f _SimRoripapersigma3beta10 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 5 -a 3 -j 6 -f _SimRoripapersigma5beta6 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 10 -a 3 -j 3 -f _SimRoripapersigma10beta3 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 15 -a 3 -j 2 -f _SimRoripapersigma15beta2 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 20 -a 3 -j 1.33 -f _SimRoripapersigma20beta1.33 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 40 -a 3 -j 0.75 -f _SimRoripapersigma40beta0.75 -v 10
+
+./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 60 -a 3 -j 0.5 -f _SimRoripapersigma60beta0.5 -v 10
+vim simulation_50replicatesEach_sigma0.5to60_EVEroriParameters.sh
+
+#!/usr/bin/sh
+
+for i in `seq 1 50`
+do
+  ./EVEmodel -H -n 9 -t data_Apes/Great_apest.awk -i data_Apes/exampleNindivs.nindiv -h 100 -g 0.5 -a 3 -j 60 -f _SimRoripapersigma0.5_simulationReplicate${i} -v 10
+  echo "output: $i"
+done

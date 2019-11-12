@@ -1,0 +1,553 @@
+STEP1: Check quality of the FASTQ files
+
+
+gunzip SRR1077753_1.fastq.gz
+gunzip SRR1077753_2.fastq.gz
+#Quality and Read length check / FastQValidator
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/check_sanity.sh SRR1077753_1.fastq SRR1077753_2.fastq
+
+
+
+#Adapter check
+##Copy adapter list from Trueseq
+
+vim /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trueseq_Adapter_MEDIUM_contaminant_list.txt
+##Copy paste the lines
+
+##Search for presence of adapter
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR1077753_1.fastq
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/find_cMEDIUM.sh SRR1077753_2.fastq
+
+
+##Check for adapters in SRR1077753_1.fastq_MEDIUMadapt_contamination_log.txt
+vim adapter_list.txt
+>PrefixUniversal/2
+AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT
+
+mv SRR1077753_1.fastq REY6_R1.fastq
+mv SRR1077753_2.fastq REY6_R2.fastq
+
+sh /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/scripts/Trimming_PE.sh REY6_R1.fastq adapter_list.txt
+
+######################################################
+STEP2: Align reads to Female reference.
+
+
+
+Create Female Reference, remove Y chromosome from reference.
+
+/galaxy/home/rxv923/myEnv/bin/python
+
+from Bio import SeqIO
+
+FastaT="Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+OutputT=open("Female_HG38.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id == "Y":
+		continue
+	else:
+		SeqIO.write(seq_record, OutputT, "fasta") 
+
+nohup bowtie2-build -f Female_HG38.fa Female_HG38 &		
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Human_Female/Female_HG38
+SAMPLE_FOLDER=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_XQ3S/
+R1=XQ3S_R1.fastq_trimmed.fastq
+R2=XQ3S_R2.fastq_trimmed.fastq
+TOPHAT_FOLDER=Tophat_Human
+
+
+
+
+/galaxy/home/rxv923/src/tophat-2.1.1.Linux_x86_64/tophat2 --no-discordant --no-mixed --library-type fr-firststrand --read-realign-edit-dist 0 -o $TOPHAT_FOLDER --num-threads 32 --mate-inner-dist 0 --mate-std-dev 200 --microexon-search --no-convert-bam $FEMALE_REF ${SAMPLE_FOLDER}${R1} ${SAMPLE_FOLDER}${R2}
+
+samtools view -hb -f 69 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/first.bam
+samtools view -hb -f 133 ${TOPHAT_FOLDER}/unmapped.bam -o ${TOPHAT_FOLDER}/second.bam
+
+samtools bam2fq ${TOPHAT_FOLDER}/first.bam > ${TOPHAT_FOLDER}/first.fastq
+samtools bam2fq ${TOPHAT_FOLDER}/second.bam > ${TOPHAT_FOLDER}/second.fastq
+
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/first.fastq | sort -S 8G -T. > read1.txt
+awk '{printf substr($0,1,length-2);getline;printf "\t"$0;getline;getline;print "\t"$0}' ${TOPHAT_FOLDER}/second.fastq | sort -S 8G -T. > read2.txt
+join read1.txt read2.txt | awk '{print $1"\n"$2"\n+\n"$3 > "unmapped_R1.fq";print $1"\n"$4"\n+\n"$5 > "unmapped_R2.fq"}'
+
+
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R2.fq 2
+python /galaxy/home/rxv923/scripts/fix_fastq_add12.py unmapped_R1.fq 1
+
+
+STEP4: Run assembly
+the unmapped reads (enriched for male-specific transcripts) were assembled with Trinity and SOAPdenovo-Trans. The generated contigs were aligned to the  female reference genome with BLAT50, and contigs that aligned at >90% of their length with 100% identity were removed from subsequent steps.  
+
+##Trinity
+
+vim Trinity_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+LEFT=unmapped_R1.fqFixed.fastq
+RIGHT=unmapped_R2.fqFixed.fastq
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Human_Female/Female_HG38.fa
+TRINITY_DIR=Trinity_output
+/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/src/trinityrnaseq-Trinity-v2.4.0/Trinity --seqType fq --max_memory 50G --left $LEFT --right $RIGHT --CPU 25 --SS_lib_type RF --output $TRINITY_DIR
+blat $FEMALE_REF ${TRINITY_DIR}/Trinity.fasta -minIdentity=100 -noHead ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl
+cat ${TRINITY_DIR}/Trinity_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > ${TRINITY_DIR}/Trinity_ContigsList_90perAlign_FemaleRef.txt
+
+vim parse_TrinityContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+InputT="Trinity_output/Trinity_ContigsList_90perAlign_FemaleRef.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filteredT:
+			continue
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_output/Trinity.fasta"
+OutputT=open("Trinity_output/Trinity_NotmappedFemaleRef.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		continue
+	else:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+
+vim slurm_trinity.sh
+sh Trinity_ContigsList90percentMaptoFemale.sh
+/usr/bin/python parse_TrinityContigsNotAligndFemlaeRef.py
+
+
+##SOAPdeNovoTrans
+
+
+vim config.txt # set insert size and other parameters
+#maximal read length
+max_rd_len=76
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=76
+#average insert size
+avg_ins= 201
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq file for read 1
+q1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_XQ3S/unmapped_R1.fqFixed.fastq
+#fastq file for read 2 always follows fastq file for read 1
+q2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_XQ3S/unmapped_R2.fqFixed.fastq
+
+#maximal read length
+max_rd_len=76
+[LIB]
+#maximal read length in this lib
+rd_len_cutof=76
+#average insert size
+avg_ins= 219
+#if sequence needs to be reversed
+reverse_seq=0
+#in which part(s) the reads are used
+asm_flags=3
+#minimum aligned length to contigs for a reliable read location
+map_len=32
+#fastq file for read 1
+q1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_REY6/unmapped_R1.fqFixed.fastq
+#fastq file for read 2 always follows fastq file for read 1
+q2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_REY6/unmapped_R2.fqFixed.fastq
+
+
+vim SoapDT_ContigsList90percentMaptoFemale.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+
+FEMALE_REF=/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/Human_Female/Female_HG38.fa
+
+/nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/bin/SOAPdenovo-Trans-31mer all -K 25 -o SOAPdenovoGraph25 -s config.txt -p 25
+blat $FEMALE_REF SOAPdenovoGraph25.scafSeq -minIdentity=100 -noHead SOAPdenovoGraph25_blat_FemaleRef.psl
+cat SOAPdenovoGraph25_blat_FemaleRef.psl | awk '{if( $1/$11 > 0.90) print $10,$11,$1, $1/$11}' > SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt
+
+#############################################################
+
+vim parse_SOAPContigsNotAligndFemlaeRef.py
+
+#!/usr/bin/python
+import sys
+from Bio import SeqIO
+Input="SdT25/SOAPdenovoGraph25_ContigsList_90perAlign_FemaleRef.txt"
+Fasta="SdT25/SOAPdenovoGraph25.scafSeq"
+Output=open("SdT25/SOAPdT_NotmappedFemaleRef.fa", "w")
+
+
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split(" ")
+		if col[0] in filtered:
+			continue
+		else:
+			filtered[col[0]]=0
+
+
+
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		continue
+	else:
+		#print (seq_record.id)
+		SeqIO.write(seq_record, Output, "fasta")
+
+###################################################
+
+
+sh SoapDT_ContigsList90percentMaptoFemale.sh
+
+mkdir SdT25/
+mv SOAPdenovoGraph25* SdT25
+
+vim slurm_SoapDT.sh
+
+/usr/bin/python parse_SOAPContigsNotAligndFemlaeRef.py
+
+
+########################################################################################
+STEP6: Female Clean
+we removed contigs that were covered at over 90% of their length by mapped female Human liver RNAseq reads
+cd /nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/
+cp /nfs/secure/scratch4/boris/amelia/36828/reads/fqgz/SRR1071668_* .
+	
+
+############ bowtie parameters 	-a return all valid alignments
+############					-q input is FASTQ format
+############					-p number of threads
+############					-S output is SAM format
+
+
+cd SdT25 
+vim SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+FEM_READ1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_1.fastq
+FEM_READ2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_2.fastq
+FEM_SAMPLE=SRR1071668
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SOAPdT_NotmappedFemaleRef.fa SOAPdT_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SOAPdT_NotmappedFemaleRef -1 $FEM_READ1 -2 $FEM_READ2  > ${FEM_SAMPLE}_SdT.sam
+samtools view -Sbh ${FEM_SAMPLE}_SdT.sam >${FEM_SAMPLE}_SdT.bam
+samtools sort ${FEM_SAMPLE}_SdT.bam >${FEM_SAMPLE}_sorted_SdT.bam
+samtools index ${FEM_SAMPLE}_sorted_SdT.bam
+samtools faidx SOAPdT_NotmappedFemaleRef.fa
+cat SOAPdT_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SOAPdT_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SdT.bam -a SOAPdT_scaffold_length.bed > Coverage_FemaleReads_SOAPdTScaffolds.bed
+cat Coverage_FemaleReads_SOAPdTScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_SOAPdT.txt
+
+
+vim parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SOAPdT.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SOAPdT_NotmappedFemaleRef.fa"
+Output=open("SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+
+sh SoapDT_ContigsList90percentCoveragetoFemaleReads.sh
+/usr/bin/python parse_SOAPContigsWithNoCoverageFemlaeReads.py
+
+
+nohup sh slurm_BowtieFemaleReads.sh > SOAPdT_bowtieFemale.out &		
+###############################################
+
+cd Trinity_output/	
+vim Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+FEM_READ1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_1.fastq
+FEM_READ2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_2.fastq
+FEM_SAMPLE=SRR1071668
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f Trinity_NotmappedFemaleRef.fa Trinity_NotmappedFemaleRef
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S Trinity_NotmappedFemaleRef -1 $FEM_READ1 -2 $FEM_READ2  > ${FEM_SAMPLE}_Trin.sam
+samtools view -Sbh ${FEM_SAMPLE}_Trin.sam >${FEM_SAMPLE}_Trin.bam
+samtools sort ${FEM_SAMPLE}_Trin.bam >${FEM_SAMPLE}_sorted_Trin.bam
+samtools index ${FEM_SAMPLE}_sorted_Trin.bam
+samtools faidx Trinity_NotmappedFemaleRef.fa
+cat Trinity_NotmappedFemaleRef.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>Trinity_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_Trin.bam -a Trinity_scaffold_length.bed > Coverage_Female_TrinityScaffolds.bed
+cat Coverage_Female_TrinityScaffolds.bed | awk '$7 < 0.1 { print $1 }'  > ContigsList_noFemaleCoverage_Trinity.txt
+
+
+
+vim parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+InputT="ContigsList_noFemaleCoverage_Trinity.txt"
+filteredT=dict()
+with open(InputT, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filteredT:
+			print line
+		else:
+			filteredT[col[0]]=0
+
+
+FastaT="Trinity_NotmappedFemaleRef.fa"
+OutputT=open("Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(FastaT, "fasta"):
+	if seq_record.id in filteredT:
+		SeqIO.write(seq_record, OutputT, "fasta")
+
+
+vim slurm_BowtieFemaleReads.sh
+
+sh Trinity_ContigsList90percentCoveragetoFemaleReads.sh
+/usr/bin/python parse_TrinityContigsWithNoCoverageFemlaeReads.py
+
+
+nohup sh slurm_BowtieFemaleReads.sh > Trinity_bowtieFemale.out &
+
+####################################AMOS
+
+mkdir Join
+cp Trinity_output/Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+cp SdT25/SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa Join/
+
+cd Join
+cat Trinity_NotmappedFemaleRef_NoCoverageFemaleReads.fa SOAPdT_NotmappedFemaleRef_NoCoverageFemaleReads.fa > All_Malespecific_scaffolds.fa
+
+
+/galaxy/home/rxv923/src/cdhit/cd-hit-est -i All_Malespecific_scaffolds.fa -o all-Human.cdhit.out -c 0.99
+
+mv ../REY6_R* .
+
+vim library.txt
+
+lib1    bowtie  XQ3S_R1.fastq XQ3S_R2.fastq 201     0.65    FR
+
+
+source activate main
+perl /galaxy/home/rxv923/src/SSPACE-STANDARD-3.0_linux-x86_64/SSPACE_Standard_v3.0.pl -l library.txt -s all-Human.cdhit.out
+
+#####################################################################
+
+
+STEP9A:
+
+vim ContigsList20percentCoveragetoFemaleReads.sh
+
+#!usr/bin/sh
+# bail out on errors
+set ue
+
+FEM_READ1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_1.fastq
+FEM_READ2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_FEMALE_LIVER/SRR1071668_2.fastq
+FEM_SAMPLE=SRR1071668
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f standard_output.final.scaffolds.fasta standard_output.final.scaffolds
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S standard_output.final.scaffolds -1 $FEM_READ1 -2 $FEM_READ2 > ${FEM_SAMPLE}_SSPades.sam
+samtools view -Sbh ${FEM_SAMPLE}_SSPades.sam >${FEM_SAMPLE}_SSPades.bam
+samtools sort ${FEM_SAMPLE}_SSPades.bam >${FEM_SAMPLE}_sorted_SSPades.bam
+samtools index ${FEM_SAMPLE}_sorted_SSPades.bam
+samtools faidx standard_output.final.scaffolds.fasta
+cat standard_output.final.scaffolds.fasta.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_scaffold_length.bed
+bedtools coverage -b ${FEM_SAMPLE}_sorted_SSPades.bam -a SSPADE_scaffold_length.bed > Coverage_Female_SSPADESScaffolds.bed
+cat Coverage_Female_SSPADESScaffolds.bed | awk '$7 < 0.2 { print $1 }'  > ContigsList_noFemaleCoverage_SSPADE.txt
+
+vim parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_noFemaleCoverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="standard_output.final.scaffolds.fasta"
+Output=open("SSPADE_NoCoverageFemaleReads.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+
+
+
+
+
+vim slurm_bowtieFemale.sh
+
+sh ContigsList20percentCoveragetoFemaleReads.sh
+/usr/bin/python parse_SSPadeContigsWithNoCoverageFemlaeReads.py
+
+nohup sh slurm_bowtieFemale.sh > bowtie_Female.out &
+
+#############################################
+
+vim ContigsList80percentCoveragetoMaleReads.sh
+#!usr/bin/sh
+# bail out on errors
+set ue
+MAL_READ1=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_XQ3S/Join/XQ3S_R1.fastq
+MAL_READ2=/nfs/secure/scratch6/nekrut_gtex/rxv923/Transcript_Assembly/GTEX_XQ3S/Join/XQ3S_R2.fastq
+MAL_SAMPLE=XQ3S
+
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie-build -f SSPADE_NoCoverageFemaleReads.fa SSPADE_NoCoverageFemaleReads
+/galaxy/home/rxv923/src/bowtie-1.1.2/bowtie --time -q -a -p 40 -S SSPADE_NoCoverageFemaleReads -1 $MAL_READ1 -2 $MAL_READ2 > ${MAL_SAMPLE}_SSPades.sam
+samtools view -Sbh ${MAL_SAMPLE}_SSPades.sam >${MAL_SAMPLE}_SSPades.bam
+samtools sort ${MAL_SAMPLE}_SSPades.bam >${MAL_SAMPLE}_sorted_SSPades.bam
+samtools index ${MAL_SAMPLE}_sorted_SSPades.bam
+samtools faidx SSPADE_NoCoverageFemaleReads.fa
+cat SSPADE_NoCoverageFemaleReads.fa.fai | cut -f1,2| awk 'BEGIN { OFS = "\t" } NR>=1 { $3=$2; $2 = 1 } 1' | awk 'BEGIN { OFS = "\t"} { print $1,$2,$3}'>SSPADE_NoCoverageFemaleReads_scaffold_length.bed
+bedtools coverage -b ${MAL_SAMPLE}_sorted_SSPades.bam -a SSPADE_NoCoverageFemaleReads_scaffold_length.bed > Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed
+cat Coverage_MaleReads_SSPADE_NoCoverageFemaleReads.bed | awk '$7 > 0.8 { print $1 }'  > ContigsList_Male_Coverage_SSPADE.txt
+		
+
+
+
+
+vim parse_SSPadeContigsWithCoverageMaleReads.py
+
+#!/usr/bin/python
+
+from Bio import SeqIO
+
+Input="ContigsList_Male_Coverage_SSPADE.txt"
+filtered=dict()
+with open(Input, "rU") as f:
+	for line in f:
+		col=line.split("\n")
+		if col[0] in filtered:
+			print line
+		else:
+			filtered[col[0]]=0
+
+
+Fasta="SSPADE_NoCoverageFemaleReads.fa"
+Output=open("Male_Transcripts_Filtered.fa", "w")
+for seq_record in SeqIO.parse(Fasta, "fasta"):
+	if seq_record.id in filtered:
+		SeqIO.write(seq_record, Output, "fasta")
+		
+
+
+vim slurm_bowtieMale.sh
+		
+sh ContigsList80percentCoveragetoMaleReads.sh
+/usr/bin/python parse_SSPadeContigsWithCoverageMaleReads.py
+
+nohup sh slurm_bowtieMale.sh > bowtie_Male.out &
+#################################################################################
+
+toAmos -s Male_Transcripts_Filtered.fa -o Male_Transcripts_Filtered.afg
+minimus2 Male_Transcripts_Filtered
+
+cat Male_Transcripts_Filtered.fasta Male_Transcripts_Filtered.singletons.seq > Male_Transcripts_Filtered_final.fa
+
+
+STEP10: Annotation
+
+/galaxy/home/rxv923/src/TransDecoder-3.0.1/TransDecoder.LongOrfs -t Male_Transcripts_Filtered_final.fa
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastp -query Male_Transcripts_Filtered_final.fa.transdecoder_dir/longest_orfs.pep  -db /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/BLASTDB/uniprot_sprot.pep  -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' -evalue 1e-5 -num_threads 20 > blastp.outfmt6
+
+
+/galaxy/home/rxv923/src/ncbi-blast-2.6.0+/bin/blastx -query Male_Transcripts_Filtered_final.fa -db /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/ref/BLASTDB/uniprot_sprot.pep -num_threads 20 -max_target_seqs 1 -outfmt '6 qseqid sseqid pident qlen length evalue staxids sscinames scomnames sskingdoms stitle' > blastx.outfmt6
+
+
+blat Male_Transcripts_Filtered_final.fa /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/data/Bonobo/Check_Amplicon/Amplicon_Transcript.fa Blat_Amplicone.pls
+
+#########################################
+################################
+
+Extract Amplicon genes
+
+Search for gene name and look for longest transcript name with more matches
+grep "BPY" blastp.outfmt6
+grep "VCY" blastp.outfmt6
+Gene.567::375::g.567::m.567     VCY1_HUMAN      93.396  149     106     1.21e-52        N/A     N/A     N/A     N/A     VCY1_HUMAN Testis-specific basic protein Y 1
+Gene.1558::scaffold205|size1215::g.1558::m.1558 VCY2_HUMAN      100.000 107     106     6.27e-74        N/A     N/A     N/A     N/AVCY2_HUMAN Testis-specific basic protein Y 2
+
+
+grep "CDY" blastp.outfmt6
+Gene.80::19::g.80::m.80 CDY1_HUMAN      100.000 541     540     0.0     N/A     N/A     N/A     N/A     CDY1_HUMAN Testis-specific chromodomain protein Y 1
+Gene.1335::scaffold45|size2227::g.1335::m.1335  CDY1_HUMAN      99.812  555     531     0.0     N/A     N/A     N/A     N/A     CDY1_HUMAN Testis-specific chromodomain protein Y 1
+
+grep "DAZ" blastp.outfmt6
+Gene.1646::scaffold318|size1038::g.1646::m.1646 DAZ3_HUMAN      99.405  168     168     6.46e-118       N/A     N/A     N/A     N/ADAZ3_HUMAN Deleted in azoospermia protein 3
+Gene.300::127::g.300::m.300     DAZ4_HUMAN      100.000 129     129     2.68e-87        N/A     N/A     N/A     N/A     DAZ4_HUMAN Deleted in azoospermia protein 4
+
+grep "HSFY" blastp.outfmt6
+Gene.1502::scaffold150|size1411::g.1502::m.1502 HSFY1_HUMAN     100.000 402     401     0.0     N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+Gene.1522::scaffold172|size1313::g.1522::m.1522 HSFY1_HUMAN     100.000 324     320     0.0     N/A     N/A     N/A     N/A     HSFY1_HUMAN Heat shock transcription factor, Y-linked
+
+grep "PRY" blastp.outfmt6
+grep "PRY" blastx.outfmt6
+1270    PRY_HUMAN       100.000 286     61      6.30e-38        N/A     N/A     N/A     N/A     PRY_HUMAN PTPN13-like protein, Y-linked
+scaffold7432|size271    PRY_HUMAN       100.000 271     51      9.48e-29        N/A     N/A     N/A     N/A     PRY_HUMAN PTPN13-like protein, Y-linked
+
+grep "RBY" blastp.outfmt6    
+Gene.425::224::g.425::m.425     RBY1B_HUMAN     80.400  239     250     3.25e-128       N/A     N/A     N/A     N/A     RBY1B_HUMAN RNA-binding motif protein, Y chromosome, family 1 member B
+Gene.1457::scaffold108|size1548::g.1457::m.1457 RBY1A_HUMAN     91.166  388     283     2.08e-175       N/A     N/A     N/A     N/ARBY1A_HUMAN RNA-binding motif protein, Y chromosome, family 1 member A1
+Gene.1509::scaffold158|size1379::g.1509::m.1509 RBY1A_HUMAN     98.790  321     248     2.23e-175       N/A     N/A     N/A     N/ARBY1A_HUMAN RNA-binding motif protein, Y chromosome, family 1 member A1
+Gene.1687::scaffold380|size980::g.1687::m.1687  RBY1A_HUMAN     100.000 275     274     0.0     N/A     N/A     N/A     N/A     RBY1A_HUMAN RNA-binding motif protein, Y chromosome, family 1 member A1
+
+
+grep "TSPY" blastp.outfmt6
+Gene.155::45::g.155::m.155      TSPYA_HUMAN     85.556  259     270     2.78e-151       N/A     N/A     N/A     N/A     TSPYA_HUMAN Testis-specific Y-encoded protein 10
+Gene.167::52::g.167::m.167      TSPY3_HUMAN     88.258  288     264     5.42e-162       N/A     N/A     N/A     N/A     TSPY3_HUMAN Testis-specific Y-encoded protein 3
+Gene.192::65::g.192::m.192      TSPY3_HUMAN     100.000 338     308     0.0     N/A     N/A     N/A     N/A     TSPY3_HUMAN Testis-specific Y-encoded protein 3
+
+grep "XKRY" blastp.outfmt6
+
+grep "VCY" blastp.outfmt6
+Gene.567::375::g.567::m.567     VCY1_HUMAN      93.396  149     106     1.21e-52        N/A     N/A     N/A     N/A     VCY1_HUMAN Testis-specific basic protein Y 1
+Gene.1558::scaffold205|size1215::g.1558::m.1558 VCY2_HUMAN      100.000 107     106     6.27e-74        N/A     N/A     N/A     N/AVCY2_HUMAN Testis-specific basic protein Y 2
