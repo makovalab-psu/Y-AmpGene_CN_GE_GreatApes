@@ -111,97 +111,24 @@ breaks <- c(0.0,0.02,0.05,0.1,0.2,0.4,0.6,0.8,0.9,0.95,0.98,1.00)
 col = c("deepskyblue","dodgerblue3","blue","darkblue","darkgreen","green2","greenyellow","yellow","orange","red","red4")
 leg.txt <- c("0-0.02","0.02-0.05","0.05-0.10","0.10-0.20", "0.20-0.40", "0.40-0.60", "0.60-0.80","0.80-0.90","0.90-0.95","0.95-0.98","0.98-1.00")
 
-#Run below line if you have issues with legend.
-#matplot(c(1, 8), c(0, 4.5), type = "n")
+pdf("SupFig_P-value_heatmap_LEGEND.pdf", width=6, height=6)
+matplot(c(1, 8), c(0, 4.5), type = "n")
+legend(6, 3, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
+dev.off()
+#The legend from above plot was added manually to the figures below.
+				  
+pdf("SupFig_P-value_heatmap_Sigmaparameter.pdf", width=6, height=6)
+heatmap(counts_sigma_pvalue0.5, Colv = NA, Rowv = NA, scale="none",main="\n Sigma parameter simulation",breaks=breaks, col=col,xlab="Sigma \n", ylab="Genes")
+#legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
+dev.off()
 
-heatmap(counts_sigma_pvalue0.5, Colv = NA, Rowv = NA, scale="none",main="\n P-value above 0.05 for Sigma parameter variation",breaks=breaks, col=col,xlab="Sigma \n", ylab="Genes")
-legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
+pdf("SupFig_P-value_heatmap_Alphaparameter.pdf", width=6, height=6)
+heatmap(counts_alpha_pvalue0.5, Colv = NA, Rowv = NA, scale="none",main="\n Alpha parameter simulation",breaks=breaks, col=col,xlab="Alpha \n", ylab="Genes")
+#legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
+dev.off()
 
-heatmap(counts_alpha_pvalue0.5, Colv = NA, Rowv = NA, scale="none",main="\n P-value above 0.05 for Alpha parameter variation",breaks=breaks, col=col,xlab="Alpha \n", ylab="Genes")
-legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
-
+pdf("SupFig_P-value_heatmap_Tauparameter.pdf", width=6, height=6)
 heatmap(counts_tau_pvalue0.5, Colv = NA, Rowv = NA, scale="none",main="\n P-value above 0.05 for Tau parameter variation",breaks=breaks, col=col,xlab="Tau \n", ylab="Genes")
-legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
-
-
-
-
-###########################
-
-
-###Test how the estimates of the parameters are:
-sharedMLparms <- list.files(path, pattern="sharedBetaMLparams5genes_theta100.00_sig25.00_alp3.00_beta6.00_5genes_SimRoripaperalpha3_simulationReplicate")
-listOfsharedMLparms <- lapply(sharedMLparms, function(x) read.table(x,header=FALSE, sep=" ", stringsAsFactors=FALSE))
-df_sharedMLparms <- data.frame(matrix(unlist(listOfsharedMLparms),nrow=5,byrow=F)) 
-df_sharedMLparms_final <- df_sharedMLparms[,colSums(is.na(df_sharedMLparms)) == 0]
-
-
-
-sharedTheta=df_sharedMLparms_final[,seq(1,ncol(df_sharedMLparms_final),by=4)]
-colnames(sharedTheta)=seq(1,50)
-sharedTheta_median_simulation=apply(sharedTheta,2,median)
-sharedSigma=df_sharedMLparms_final[,seq(2,ncol(df_sharedMLparms_final),by=4)]
-colnames(sharedSigma)=seq(1,50)
-sharedSigma_median_simulation=apply(sharedSigma,2,median)
-sharedAlpha=df_sharedMLparms_final[,seq(3,ncol(df_sharedMLparms_final),by=4)]
-colnames(sharedAlpha)=seq(1,50)
-sharedAlpha_median_simulation=apply(sharedAlpha,2,median)
-sharedBeta=df_sharedMLparms_final[,seq(4,ncol(df_sharedMLparms_final),by=4)]
-colnames(sharedBeta)=seq(1,50)
-sharedBeta_median_simulation=apply(sharedBeta,2,median)
-
-
-
-singleMLparms <- list.files(path, pattern="indivBetaMLparams5genes_theta100.00_sig25.00_alp3.00_beta6.00_5genes_SimRoripaperalpha3_simulationReplicate")
-listOfsingleMLparms <- lapply(singleMLparms, function(x) read.table(x,header=FALSE, sep=" ", stringsAsFactors=FALSE))
-df_singleMLparms <- data.frame(matrix(unlist(listOfsingleMLparms),nrow=5,byrow=F)) 
-df_singleMLparms_final <- df_singleMLparms[,colSums(is.na(df_singleMLparms)) == 0]
-
-
-
-Theta=df_singleMLparms_final[,seq(1,ncol(df_singleMLparms_final),by=4)]
-colnames(Theta)=seq(1,50)
-Theta_median_simulation=apply(Theta,2,median)
-Sigma=df_singleMLparms_final[,seq(2,ncol(df_singleMLparms_final),by=4)]
-colnames(Sigma)=seq(1,50)
-Sigma_median_simulation=apply(Sigma,2,median)
-Alpha=df_singleMLparms_final[,seq(3,ncol(df_singleMLparms_final),by=4)]
-colnames(Alpha)=seq(1,50)
-Alpha_median_simulation=apply(Alpha,2,median)
-Beta=df_singleMLparms_final[,seq(4,ncol(df_singleMLparms_final),by=4)]
-colnames(Beta)=seq(1,50)
-Beta_median_simulation=apply(Beta,2,median)
-
-par(mfrow=c(2,2)) 
-boxplot(Theta_median_simulation, sharedTheta_median_simulation,outline=FALSE, names=c("Single", "Shared"), main="Median theta parameter for 100 replicates, set value= 100")
-boxplot(Sigma_median_simulation, sharedSigma_median_simulation,outline=FALSE, names=c("Single", "Shared"), main="Median sigma parameter for 100 replicates, set value= 5")
-boxplot(Alpha_median_simulation, sharedAlpha_median_simulation,outline=FALSE, names=c("Single", "Shared"), main="Median alpha parameter for 100 replicates, set value= 3")
-boxplot(Beta_median_simulation, sharedBeta_median_simulation,outline=FALSE, names=c("Single", "Shared"), main="Median beta parameter for 100 replicates")
-
-
-
-
-
-par(mfrow=c(1,1)) 
-
-boxplot(Theta ,main="Theta parameter for 100 replicates, set value= 100",ylab="Theta Estimates", xlab="Replicates")
-boxplot(Sigma,main="Sigma parameter for 100 replicates, set value= 5",ylab="Sigma Estimates", xlab="Replicates")
-boxplot(Sigma,main="Sigma parameter for 100 replicates, set value= 5",ylim=c(0,20),ylab="Sigma Estimates", xlab="Replicates")
-boxplot(Alpha,main="Alpha parameter for 100 replicates, set value= 3",ylab="Alpha Estimates", xlab="Replicates")
-boxplot(Alpha,main="Alpha parameter for 100 replicates, set value= 3",ylim=c(0,50),ylab="Alpha Estimates", xlab="Replicates")
-boxplot(Beta,main="Beta parameter for 100 replicates, set value= 6",ylab="Beta Estimates", xlab="Replicates")
-boxplot(Beta,main="Beta parameter for 100 replicates, set value= 6",ylim=c(0,50),ylab="Beta Estimates", xlab="Replicates")
-
-
-
-
-
-
-
-boxplot(sharedTheta ,main="Shared Theta parameter for 100 replicates, set value= 100",ylab="Shared Theta Estimates", xlab="Replicates")
-boxplot(sharedSigma,main="Shared Sigma parameter for 100 replicates, set value= 5",ylab="Shared Sigma Estimates", xlab="Replicates")
-boxplot(sharedSigma,main="Shared Sigma parameter for 100 replicates, set value= 5",ylim=c(0,20),ylab="Shared Sigma Estimates", xlab="Replicates")
-boxplot(sharedAlpha,main="Shared Alpha parameter for 100 replicates, set value= 3",ylab="Shared Alpha Estimates", xlab="Replicates")
-boxplot(sharedAlpha,main="Shared Alpha parameter for 100 replicates, set value= 3",ylim=c(0,50),ylab="Shared Alpha Estimates", xlab="Replicates")
-boxplot(sharedBeta,main="Shared Beta parameter for 100 replicates, set value= 6",ylab="Shared Beta Estimates", xlab="Replicates")
-boxplot(sharedBeta,main="Shared Beta parameter for 100 replicates, set value= 6",ylim=c(0,50),ylab="Shared Beta Estimates", xlab="Replicates")
+#legend(7.3, 4.5, leg.txt, fill=col,cex=0.9,title="%Pval > Thresh")
+dev.off()
+				  
