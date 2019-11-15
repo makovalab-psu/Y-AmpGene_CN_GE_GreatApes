@@ -163,7 +163,54 @@ ColorsSP5.name <-  c(Bonobo="#E69F00", Chimpanzee="#F0E442" , Human="#D55E00", G
 
 
 
-#FIG 1 MARTA
+###FIG 1B. Plot of the first two principal components (PCs) of Y ampliconic gene copy numbers across great ape species
+#Read the great ape ampliconic copy number data
+GA_dat<-read.table('../Data_files/GA_copy_number_ddPCR_replicates',header=T,sep="\t")
+
+#Calculate the mean copy number across all the ddPCR reaplicates for each great ape male individual
+GA_dat$mean<-apply(GA_dat[,c(3:7)],1,mean,na.rm=T)
+
+#Read the table with great ape species information for each individual ID
+great_ape<-read.table('../Data_files/great_ape_species_info',sep="\t",header=T)
+
+#Merge the copy number information with great ape species information into one data frame
+GA_dat2<-merge(GA_dat,great_ape,by="IID",sort=F)
+
+#Prepare a data frame that displays IIDs areas rows and genes as columns and average copy number across ddPCR replicates
+GA_dat3<-dcast(GA_dat2,IID~Gene,value.var="mean")
+GA_dat3$IID<-as.character(GA_dat3$IID)
+GA_dat3<-join(GA_dat3,great_ape,by="IID")
+
+#Run Principal Component Analysis on copy numbers of ampliconic genes shared across great apes
+pca<-prcomp(GA_dat3[,c(2:4, 7:8)],center=T,scale=T)
+
+#Load eigenvalues and eigenvectors for all ampliconic gene copy numbers
+eigval.cnv<-data.frame(V1=pca$sdev)
+eigvec.cnv<-data.frame(pca$x)
+eigvec.cnv$IID<-as.character(pca$IID)
+eigvec.cnv$Species<-as.character(GA_dat3$Species)
+
+#Plot PC1 versus PC2 for all ampliconic gene copy numbers
+cnv.p1vp2<-ggplot(eigvec.cnv,aes(PC1,PC2,color=Species, size = 3))+geom_point(shape=21,color="black",aes(fill=Species))+theme_bw()+scale_fill_manual(values = c("#009E73", "#D55E00", "#56B4E9","#E69F00","#0078D7","#F0E442")) + labs (x = "PC1 (68.7% explained var.)", y = "PC2 (22.8% explained var.)")
+ggsave('Figure_1B.pdf',cnv.p1vp2,height=7,width=7)
+
+
+###Figure S1. Relationship between median and variance of copy number across all great apes. 
+#Plot mean and variance for all ampliconic gene copy numbers for all great ape species
+GA_dat4<-data.frame(Gene=colnames(GA_dat3)[c(2:10)],Median=apply(GA_dat3[,c(2:10)],2,median,na.rm=T),Variance=apply(GA_dat3[,c(2:10)],2,var,na.rm=T))
+fig_S1<-ggplot(GA_dat4,aes(log(Median),log(Variance),color=Gene))+geom_point()+stat_smooth(method="lm",se=F,color="grey")+theme_bw()+geom_text_repel(aes(log(Median),log(Variance),label=Gene)) 
+ggsave('Figure_S1.pdf',fig_S1,height=7,width=7)
+
+
+
+###Figure S2. Principal components analysis of the overall copy number of Y ampliconic gene families across great apes.
+#Plot proportion of variance explained by each PC
+eigval.cnv$prop<-eigval.cnv$V1/sum(eigval.cnv$V1)
+eigval.cnv$PC<-seq(1,nrow(eigval.cnv),1)
+
+#Limit no. of PCs on the plot to 5
+screecnv<-ggplot(eigval.cnv,aes(PC,prop))+geom_point()+geom_line()+theme_bw()+labs(y="Prop. of variance explained")+scale_x_continuous(breaks=seq(1,9,1),limits=c(1,5)) 
+ggsave('Figure_S2.pdf',screecnv,height=7,width=7)
 
 
 
