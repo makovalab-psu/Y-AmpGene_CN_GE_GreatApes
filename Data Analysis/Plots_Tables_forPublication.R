@@ -220,7 +220,7 @@ greatAPE_summary$Species<- factor(greatAPE_summary$Species, levels = c("Bonobo",
 boxP<- ggplot(greatAPE_summary, aes( x=Species, y=CopyNumber),size=0.5) +
   geom_boxplot( aes(fill = Species,color=Species), size=0.25,outlier.size=0.25 ) +
   stat_summary(fun.y=median, geom="point", size=0.2, shape=23 )+
-  scale_y_continuous(breaks = round(seq(0,60, by = 5),1))+
+  scale_y_continuous(breaks = round(seq(0,60, by = 4),1))+
   theme_bw() + 
   theme(                              
     axis.title.x = element_text(color="black",size=9),  axis.text.x=element_blank(), axis.ticks.x=element_blank(),
@@ -234,7 +234,7 @@ boxP<- ggplot(greatAPE_summary, aes( x=Species, y=CopyNumber),size=0.5) +
 
 
 grid.newpage()
-pdf('Fig_SummaryCN_Boxplot.pdf', width=6.5, height=4)
+pdf('Fig_SummaryCN_Boxplot_4scale.pdf', width=6.5, height=4)
 boxP+theme(legend.title=element_text(size=8.5),legend.text=element_text(size=8), legend.key.size = unit(0.7,"line"),legend.position="bottom" )+ theme(strip.text = element_text(face = "italic"))+guides(fill=guide_legend(nrow=1,byrow=TRUE))
 dev.off()
 #NOTE: Manually added the sample size using Adobe Illustrator.
@@ -516,6 +516,7 @@ dev.off()
 
 ####################Gene Expression
 Amp_GE<-read.table("GreatAPE_GE_Salmon_allSamples.txt",sep="\t", header=TRUE, stringsAsFactor=FALSE)
+#Setting the expression to NA for gene families that are lost in different great apes.
 Amp_GE[8,c(2,3)]=NA
 Amp_GE[4,c(2,3)]=NA
 Amp_GE[5,c(2,3)]=NA
@@ -544,23 +545,24 @@ geneFamilyGE<-split(data_ApeGE , f = data_ApeGE$Gene )
 ##Figure 5. Summary of gene expression levels across great apes.
 
 logdata_ApeGE<-data_ApeGE
-logdata_ApeGE$Expression<-log(logdata_ApeGE$Expression)
+logdata_ApeGE$Expression<-log(round(logdata_ApeGE$Expression))
 pGE<- ggplot(logdata_ApeGE, aes(y=Expression, x=Gene, color=Species)) + 
 	geom_point(size=2,aes(color=Species), shape=18) +
-	#ylim(0,6000)+
+	#ylim(0,10)+
 	theme_bw() + 
 	theme(                              
-	axis.title.x = element_text( color="black", size=12),
-	axis.title.y = element_text( color="black", size=12),
-	plot.title = element_text(face="bold", color = "black", size=12),
-	axis.text.x = element_text(face = "italic")) +
+	axis.title.x = element_text( color="black", size=9),
+	axis.title.y = element_text( color="black", size=9),
+	plot.title = element_text(face="bold", color = "black", size=9),
+	axis.text.y = element_text(color = "black",size=9),
+	axis.text.x = element_text(face = "italic", size=9)) +
 	#labs(title= "Gene expression of ampliconic gene families") +
 	labs(x = "Gene family") +
-	labs(y = "log(gene expression)")+
-	scale_fill_manual(values=ColorsSP.name)+ scale_colour_manual(values=ColorsSP.name)
+	labs(y = "log(normalized read counts)")+
+	scale_fill_manual(values=ColorsSP.name)+ scale_colour_manual(values=ColorsSP.name)+scale_y_continuous(breaks = seq(0, 10, 2))
 
 
-pdf('Fig5_GE_summary.pdf',width=5.5, height=5)
+pdf('Fig5_GE_summary_revision.pdf',width=5, height=4)
 pGE
 dev.off()
 #NOTE:Add sample count next to species in legend
@@ -750,7 +752,7 @@ ApesData=gene_level$counts
 ApesData<-as.matrix(ApesData)
 ApesData=apply(ApesData, 1:2, round)
 head(ApesData)
-
+#ad<-ApesData[,c(1,4,5,6,7,8,9,10,11,13,14,17)]
 ad<-ApesData[,c(1,4,5,6,7,8,9,10,11,13,14,17,19)]
 #species <-factor(c(rep("Bonobo",2),rep("Chimpanzee",3),rep("Human",3),rep("Gorilla",2),rep("Borang",2)))
 species <-factor(c(rep("Bonobo",2),rep("Chimpanzee",3),rep("Human",3),rep("Gorilla",2),rep("Borang",2),rep("Sorang",1)))
@@ -785,9 +787,12 @@ head(v)
 #write.table(r,file="greatApe_RLDCounts_Testis_2-3samples.tab", sep="\t", quote=FALSE, row.names=TRUE, col.names=TRUE)
 #write.table(v,file="greatApe_VSTCounts_Testis_2-3samples.tab", sep="\t", quote=FALSE, row.names=TRUE, col.names=TRUE)
 
-
+##List of ampliconic genes, the great ape assembled ampliconic transcripts are labelled as BPY2_CDS, CDY_CDS,.... .
+##If for a species, we did not finde a transcript in our assembly, we used a human transcript for the same gene family as a dummy .
 ampliconList=c("BPY2B","BPY2","BPY2C","BPY2_CDS","CDY1","CDY1B","CDY2A","CDY2B","CDY_CDS","DAZ1","DAZ2","DAZ3","DAZ4","DAZ_CDS","HSFY1","HSFY2","HSFY_CDS","PRY","PRY2","PRY_CDS","RBMY1A1","RBMY1J","RBMY1F","RBMY1E","RBMY1D","RBMY1B","RBMY_CDS","TSPY10","TSPY1","TSPY3","TSPY8","TSPY4","TSPY2","TSPY_CDS","VCY","VCY1B","VCY1_CDS","XKRY","XKRY2")
 
+
+#Parsing ampliconic gene expression counts.
 ampD=NULL
 for (gene in ampliconList){
   print(gene)
@@ -817,7 +822,7 @@ close(fh)
 		 
 
 ###To run EVE
-
+#cd /nfs/brubeck.bx.psu.edu/scratch6/rahul/Apes/simulationRori_EVE/EVE_release
 ##
 ##cat data_Apes/exampleNindivs_2-3each.nindiv
 ##2 3 3 2 2
